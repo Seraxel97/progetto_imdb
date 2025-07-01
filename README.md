@@ -1,143 +1,136 @@
-<<<<<<< HEAD
-# IMDb Sentiment Analysis – README
+# 📘 IMDb Sentiment Analysis - README
 
-## 🌟 Obiettivo del progetto
+## 🧠 Descrizione del Progetto
 
-Sistema completo per analisi automatica del sentiment su recensioni IMDb, con:
+Il progetto IMDb Sentiment Analysis ha l'obiettivo di classificare automaticamente recensioni cinematografiche come positive o negative. Utilizza modelli MLP e SVM, embedding con MiniLM-L6-v2, e offre una GUI interattiva per analisi su dataset e file. Include:
 
-* Classificazione binaria (positivo/negativo)
-* Embedding MiniLM o TF-IDF
-* Modelli MLP e SVM
-* GUI interattiva per input manuale o da file
-* Generazione automatica di grafici, CSV e report PDF
+* Preprocessing e generazione dataset CSV
+* Generazione embedding con modelli NLP
+* Addestramento MLP e SVM
+* Generazione report PDF, grafici, classificazioni
+* Analisi file singolo (txt, pdf, docx, csv)
+* GUI completa per esecuzione pipeline e visualizzazione risultati
 
- Attualmente:
-Funziona con qualsiasi lingua, ma è stata addestrata principalmente su inglese (dataset IMDb).
+---
 
-Se scrive recensioni in italiano o spagnolo, il sistema le capisce, ma con accuratezza un po’ più bassa, soprattutto per il modello MLP.
-
-L’embedding MiniLM è multilingua (accetta input in italiano, francese, spagnolo…)
-
-Tuttavia, il modello di classificazione (MLP e SVM) è stato addestrato su recensioni in inglese
-
-🔁 Soluzioni (facoltative):
-⚠️ Se vuole migliorare l’accuratezza in italiano: serve riaddestre i modelli con un dataset italiano
-
-✅ Per test in italiano, puoi comunque usarla: i modelli capiscono abbastanza bene grazie all’embedding multilingua
-
-## 📁 Struttura del progetto
+## 📁 Struttura del Progetto
 
 ```
-progetto_imdb/
-├── main.py                  # Avvio CLI o GUI
-├── gui_main.py             # GUI interattiva completa
-├── config.yaml             # Configurazioni base
-├── enhanced_utils.py       # Utility avanzate
-├── scripts/
-│   ├── preprocess.py       # Pulizia e split dataset
-│   ├── embed_dataset.py    # Embedding MiniLM / TF-IDF
-│   ├── train_mlp.py        # Addestramento MLP
-│   ├── train_svm.py        # Addestramento SVM
-│   ├── predictor.py        # Analisi e predizioni
-│   ├── report.py           # Generazione report PDF e grafici
-│   └── file_handler.py     # Gestione file input/output
+├── config.yaml                        # Parametri di configurazione
+├── main.py                            # Avvio CLI pipeline principale
+├── gui_data_dashboard.py              # GUI Streamlit
+├── requirements.txt                   # Librerie richieste
+├── README.md                          # Questo file
 ├── data/
-│   ├── raw/                # IMDb originale
-│   ├── processed/          # train/test/val.csv
-│   └── embeddings/         # X/y già trasformati
-├── models/                 # MiniLM salvato
-├── results/                # Cartelle generate per ogni analisi
-├── logs/                   # Log automatici
-└── requirements.txt        # Librerie necessarie
+│   ├── raw/                           # Dataset originale (es. imdb_raw.csv)
+│   ├── processed/                     # CSV processati: train.csv, test.csv, val.csv
+│   └── embeddings/                    # Dataset vettorializzati (.npy, metadata)
+├── models/                            # Modello MiniLM pre-addestrato
+├── results/                           # Risultati pipeline, modelli, report, grafici
+├── logs/                              # Log generali
+├── scripts/                           # Script principali
+│   ├── preprocess.py                  # Pulizia e split dataset
+│   ├── embed_dataset.py              # Generazione embedding vettoriali
+│   ├── train_mlp.py                  # Addestramento classificatore MLP
+│   ├── train_svm.py                  # Addestramento classificatore SVM
+│   ├── report.py                     # Generazione PDF e visualizzazioni
+│   ├── pipeline_runner.py            # Esecuzione pipeline automatizzata
+│   ├── enhanced_utils_unified.py    # Funzioni avanzate (analisi file, salvataggi)
+│   ├── unified_pipeline.py          # Pipeline coerente embedding → predizione
+│   └── unified_preprocessing.py     # Preprocessing unificato
 ```
-
----
-
-## 🧠 Modelli usati
-
-* **Embedding**: MiniLM (`all-MiniLM-L6-v2`) o TF-IDF
-* **MLP**: 2 layer + ReLU, addestrato con AdamW
-* **SVM**: SVC kernel RBF + scaler
-
----
-
-## 🚀 Come eseguire
-
-### ▶️ Da terminale (CLI):
-
+## ⚙️ Comandi principali
 ```bash
-python main.py --cli
+# Preprocessing del dataset IMDb
+python scripts/preprocess.py
+
+# Generazione embeddings (MiniLM-L6-v2)
+python scripts/embed_dataset.py
+
+# Addestramento MLP
+python scripts/train_mlp.py
+
+# Addestramento SVM (GridSearch o modalità fast)
+python scripts/train_svm.py
+
+# Generazione report PDF/JSON/PNG
+python scripts/report.py
+
+# Avvio GUI (Streamlit)
+streamlit run gui_data_dashboard.py
+
+# Pipeline automatizzata da file CSV
+python main.py --file data/raw/miofile.csv
 ```
 
-* Preprocessa
-* Embedda
-* Addestra MLP e SVM
-* Valida
+## 🧠 Modello per embedding
+Il modello `MiniLM-L6-v2` si trova in `models/minilm-l6-v2/`, compatibile con `sentence-transformers`.
 
-### 🖥️ Da interfaccia grafica (GUI):
-
-```bash
-python gui_main.py
-```
-
-* Tab per scrivere testo manuale ✍️
-* Caricamento file `.txt`, `.csv`, `.pdf`, `.docx`, `.jpg`
-* Salvataggio automatico output in `/results` con grafici, CSV, PDF
-
+## 🧪 Dataset
+- Inserire i file `.csv` in `data/raw/` o caricarli dalla GUI.
+- Dopo preprocessing, i dati vengono suddivisi in `train.csv`, `val.csv`, `test.csv` in `data/processed/`.
 ---
 
-## 📈 Output generato
+## ⚙️ Requisiti
 
-Ogni analisi (file o testo) crea una cartella unica:
-
-```
-results/YYYY-MM-DD_HHMMSS_nomefile/
-├── report.pdf
-├── predictions.csv
-├── plots/*.png
-├── metadata.json
-└── logs.txt
-```
-
----
-
-## 📦 Requisiti
-
-```txt
-Python >= 3.10
-transformers
-scikit-learn
-sentence-transformers
-pandas, matplotlib, seaborn
-python-docx, pillow, weasyprint, PyMuPDF, textract
-```
-
-Installa tutto con:
+Installare le librerie richieste:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+
+
+## 📄 Dataset
+
+Inserire i file `.csv` nella cartella `data/raw/` con il seguente formato:
+
+```
+text,label
+"This movie was great!",1
+"Terrible plot and poor acting",0
+```
+
+Il file `imdb_raw.csv` sarà processato automaticamente.
+
 ---
 
-## 👨‍🏫 Per i professori
+## 📊 Output generati
 
-* Il progetto funziona sia in modalità CLI che GUI
-* Analizza testo, documenti, immagini OCR
-* Il sistema è modulare e documentato
-* Tutti i risultati sono salvati automaticamente
-* I modelli sono già addestrati e usabili
+* `data/processed/*.csv`: dataset puliti
+* `data/embeddings/*.npy`: dataset vettoriali
+* `results/models/`: modelli addestrati
+* `results/plots/`: grafici performance
+* `results/reports/`: classificazione, metriche, confusione
+* `results/session_*/`: cartelle temporali con esperimenti
 
 ---
 
-## 📬 Contatti
+## 💡 Esempi GUI
 
-* Autore: Samuele Losio
-* Corso: Reti Neurali / Scientific Programming
-* Università: Università degli Studi di Chieti-Pescara
-* Email: [samuele97losio@gmail.com](mailto:samuele97losio@gmail.com)
-* Anno: 2025
-=======
-# progetto_imdb
-"IMDb Sentiment Analysis – Embedding, MLP &amp; SVM training, GUI, PDF report, batch &amp; file analysis."
->>>>>>> 7accba77aa0576b1a81eb714703c225206669d7e
+* Analisi file .csv/.txt/.docx/.pdf
+* Inserimento manuale recensioni
+* Visualizzazione metriche, report e grafici
+* Nuovo dataset → auto-preprocess → embed → train → salva
+
+---
+
+## 📚 Librerie principali
+
+* `torch`, `scikit-learn`, `transformers`, `sentence-transformers`
+* `nltk`, `pandas`, `numpy`, `matplotlib`, `streamlit`, `plotly`
+
+---
+
+## 👤 Autore
+
+Samuele Losio · Università di Chieti-Pescara · 2025
+
+---
+
+## 📎 Note finali
+
+* Tutti gli script sono indipendenti ma interoperabili
+* Dataset supportati: solo `.csv`
+* Tutte le analisi sono salvate automaticamente in `results/`
+* Versione Codex/ChatGPT compatibile con repository pubblica
