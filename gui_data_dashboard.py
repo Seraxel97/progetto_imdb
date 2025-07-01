@@ -801,7 +801,8 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
             for model_name, pred in predictions.items():
                 if model_name in metrics:
                     model_metrics = metrics[model_name]
-                    pred_dist = dict(zip(*np.unique(pred, return_counts=True)))
+                    unique_vals, counts = np.unique(pred, return_counts=True)
+                    pred_dist = {int(k): int(v) for k, v in zip(unique_vals, counts)}
                     
                     report['model_performance'][model_name] = {
                         'model_type': model_metrics.get('model_type', 'Unknown'),
@@ -815,7 +816,7 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
         if predictions:
             all_predictions = []
             for pred in predictions.values():
-                all_predictions.extend(pred)
+                all_predictions.extend([int(p) for p in pred])
             
             if all_predictions:
                 unique_preds, counts = np.unique(all_predictions, return_counts=True)
@@ -823,9 +824,9 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
                 
                 label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
                 report['sentiment_distribution'] = {
-                    'counts': {label_map.get(pred, f'class_{pred}'): count for pred, count in zip(unique_preds, counts)},
-                    'percentages': {label_map.get(pred, f'class_{pred}'): (count/total)*100 for pred, count in zip(unique_preds, counts)},
-                    'total_classified': total
+                    'counts': {label_map.get(int(pred), f'class_{int(pred)}'): int(count) for pred, count in zip(unique_preds, counts)},
+                    'percentages': {label_map.get(int(pred), f'class_{int(pred)}'): (int(count)/total)*100 for pred, count in zip(unique_preds, counts)},
+                    'total_classified': int(total)
                 }
         
         return report
@@ -865,12 +866,25 @@ def analyze_sentiment_by_class(texts: List[str], predictions: List[int]) -> Dict
                     'avg_words': np.mean([len(str(text).split()) for text in texts_list]),
                     'top_words': analysis[sentiment]['word_freq'].most_common(10)
                 }
+
+                # Extract top bigrams/trigrams
+                try:
+                    vectorizer = TfidfVectorizer(ngram_range=(2, 3), stop_words='english')
+                    tfidf = vectorizer.fit_transform(texts_list)
+                    sums = tfidf.sum(axis=0).A1
+                    indices = np.argsort(sums)[::-1][:10]
+                    features = vectorizer.get_feature_names_out()
+                    top_phrases = [(features[i], float(sums[i])) for i in indices]
+                except Exception:
+                    top_phrases = []
+                analysis[sentiment]['stats']['top_phrases'] = top_phrases
             else:
                 analysis[sentiment]['stats'] = {
                     'count': 0,
                     'avg_length': 0,
                     'avg_words': 0,
-                    'top_words': []
+                    'top_words': [],
+                    'top_phrases': []
                 }
         
         return analysis
@@ -1207,6 +1221,7 @@ def predict_sentiment_enhanced(texts, embeddings, models):
                 
                 embeddings_scaled = scaler.transform(embeddings) if scaler else embeddings
                 svm_pred = svm_model.predict(embeddings_scaled)
+                svm_pred = svm_pred.astype(int).tolist()
                 
                 if hasattr(svm_model, 'predict_proba'):
                     try:
@@ -1223,7 +1238,7 @@ def predict_sentiment_enhanced(texts, embeddings, models):
                     'confidence_avg': float(np.mean(svm_confidence)),
                     'confidence_std': float(np.std(svm_confidence)),
                     'confidence_scores': svm_confidence.tolist(),
-                    'prediction_distribution': dict(zip(*np.unique(svm_pred, return_counts=True)))
+                    'prediction_distribution': {int(k): int(v) for k, v in zip(*np.unique(svm_pred, return_counts=True))}
                 }
                 
                 st.success(f"✅ SVM predictions completed (confidence: {np.mean(svm_confidence):.3f})")
@@ -1280,13 +1295,14 @@ def predict_sentiment_enhanced(texts, embeddings, models):
                         mlp_pred = torch.argmax(full_outputs, dim=1).cpu().numpy()
                         mlp_confidence = np.max(probabilities, axis=1)
                 
+                mlp_pred = mlp_pred.astype(int).tolist()
                 predictions['mlp'] = mlp_pred
                 metrics['mlp'] = {
                     'model_type': 'MLP',
                     'confidence_avg': float(np.mean(mlp_confidence)),
                     'confidence_std': float(np.std(mlp_confidence)),
                     'confidence_scores': mlp_confidence.tolist(),
-                    'prediction_distribution': dict(zip(*np.unique(mlp_pred, return_counts=True))),
+                    'prediction_distribution': {int(k): int(v) for k, v in zip(*np.unique(mlp_pred, return_counts=True))},
                     'batch_processed': True
                 }
                 
@@ -1390,6 +1406,12 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                             st.metric("Avg Length", f"{pos_stats.get('avg_length', 0):.0f} chars")
                         with col3:
                             st.metric("Avg Words", f"{pos_stats.get('avg_words', 0):.1f}")
+
+                        top_phrases = pos_stats.get('top_phrases', [])
+                        if top_phrases:
+                            st.markdown("**Top Phrases:**")
+                            for phrase, score in top_phrases[:5]:
+                                st.write(f"- {phrase}")
             
             with tab_neg:
                 if sentiment_analysis.get('negative', {}).get('stats', {}).get('top_words'):
@@ -1416,6 +1438,12 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                             st.metric("Avg Length", f"{neg_stats.get('avg_length', 0):.0f} chars")
                         with col3:
                             st.metric("Avg Words", f"{neg_stats.get('avg_words', 0):.1f}")
+
+                        top_phrases = neg_stats.get('top_phrases', [])
+                        if top_phrases:
+                            st.markdown("**Top Phrases:**")
+                            for phrase, score in top_phrases[:5]:
+                                st.write(f"- {phrase}")
             
             with tab_neu:
                 if sentiment_analysis.get('neutral', {}).get('stats', {}).get('top_words'):
@@ -1442,7 +1470,33 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                             st.metric("Avg Length", f"{neu_stats.get('avg_length', 0):.0f} chars")
                         with col3:
                             st.metric("Avg Words", f"{neu_stats.get('avg_words', 0):.1f}")
-        
+
+                        top_phrases = neu_stats.get('top_phrases', [])
+                        if top_phrases:
+                            st.markdown("**Top Phrases:**")
+                            for phrase, score in top_phrases[:5]:
+                                st.write(f"- {phrase}")
+
+        # Classification Metrics if ground truth labels are available
+        if stats.get('sentiment_column') and predictions:
+            true_labels = df[stats['sentiment_column']].tolist()
+            st.subheader("📑 Classification Metrics")
+            for model_name, pred in predictions.items():
+                if len(pred) == len(true_labels):
+                    try:
+                        acc = accuracy_score(true_labels, pred)
+                        f1 = f1_score(true_labels, pred, average='weighted')
+                        st.markdown(f"**{model_name.upper()}**")
+                        st.write(f"Accuracy: {acc:.3f} | F1-score: {f1:.3f}")
+                        cm = confusion_matrix(true_labels, pred)
+                        fig_cm = px.imshow(cm, text_auto=True,
+                                         x=['neg','pos','neu'], y=['neg','pos','neu'],
+                                         color_continuous_scale='Blues',
+                                         title=f'{model_name.upper()} Confusion Matrix')
+                        st.plotly_chart(fig_cm, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Could not compute metrics for {model_name}: {e}")
+
         # Confidence Score Analysis
         if metrics:
             st.subheader("📈 Model Confidence Analysis")
@@ -1527,9 +1581,27 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                     'Max': [lengths.max(), word_counts.max()]
                 })
                 st.dataframe(length_stats, use_container_width=True)
-                
+
             except Exception as e:
                 st.warning(f"Could not create length analysis: {e}")
+
+        # Additional Word Statistics
+        word_stats = stats.get('deep_analysis', {}).get('word_analysis', {})
+        if word_stats:
+            st.subheader("📝 Word Statistics")
+            st.write(f"Average Word Length: {word_stats.get('word_length_avg', 0):.2f}")
+            st.write(f"Rare Words: {word_stats.get('rare_words_count', 0)}")
+            long_words = word_stats.get('long_words', [])
+            if long_words:
+                st.write("**Long Words:** " + ', '.join(long_words[:10]))
+            short_words = word_stats.get('short_words', [])
+            if short_words:
+                st.write("**Short Words:** " + ', '.join(short_words[:10]))
+
+        topics = stats.get('deep_analysis', {}).get('topic_insights', {})
+        if topics and topics.get('key_terms'):
+            st.subheader("💡 Key Topics")
+            st.write(', '.join(topics.get('key_terms')[:10]))
         
         # Word Cloud by Sentiment Class
         if WORDCLOUD_AVAILABLE and sentiment_analysis and text_col:
@@ -2354,6 +2426,9 @@ def main():
                                     
                                     results_df = pd.DataFrame(results_data)
                                     st.dataframe(results_df, use_container_width=True)
+
+                                    summary_parts = [f"{row['Model']}: {row['Prediction']} ({row['Confidence']})" for _, row in results_df.iterrows()]
+                                    st.info(" | ".join(summary_parts))
                                     
                                     # SCIENTIFIC FIX: Display scientific analysis for single text
                                     st.subheader("📊 Scientific Text Analysis")
@@ -2395,6 +2470,18 @@ def main():
                                                 color_continuous_scale='viridis'
                                             )
                                             st.plotly_chart(fig_words, use_container_width=True)
+
+                                            try:
+                                                vec = TfidfVectorizer(ngram_range=(2,3), stop_words='english')
+                                                tfidf = vec.fit_transform([test_text])
+                                                sums = tfidf.sum(axis=0).A1
+                                                features = vec.get_feature_names_out()
+                                                idx = np.argsort(sums)[::-1][:5]
+                                                st.markdown("**Key Phrases:**")
+                                                for i in idx:
+                                                    st.write(f"- {features[i]}")
+                                            except Exception:
+                                                pass
                                     
                                     # SCIENTIFIC FIX: Display scientific report
                                     st.subheader("📋 Scientific Analysis Report")
@@ -2774,7 +2861,7 @@ def main():
                     
                     ### 📊 To Enable Scientific Analysis:
                     1. Upload a CSV file with text data
-                    2. Run "Quick Analysis" or "Deep Analysis" in the CSV Analysis tab
+                    2. Run "Quick Analysis" in the CSV Analysis tab
                     3. Return here to see comprehensive scientific insights
                     """)
             except Exception as e:
@@ -2812,29 +2899,18 @@ def main():
                 # Enhanced analysis options
                 st.subheader("🔬 Analysis Options")
                 
-                col1, col2, col3 = st.columns(3)
-                
+                col1 = st.columns(1)[0]
+
                 with col1:
                     quick_analysis = st.button(
-                        "⚡ Quick Analysis", 
+                        "⚡ Quick Analysis",
                         type="primary",
                         help="Fast analysis with predictions and insights"
                     )
-                with col2:
-                    deep_analysis_btn = st.button(
-                        "🔍 Deep Analysis", 
-                        type="secondary",
-                        help="Comprehensive analysis with advanced features"
-                    )
-                with col3:
-                    full_pipeline = st.button(
-                        "🚀 Full Pipeline", 
-                        help="Complete pipeline with model training"
-                    )
-                
+
                 # Analysis execution
-                if quick_analysis or deep_analysis_btn:
-                    analysis_type = "comprehensive" if deep_analysis_btn else "quick"
+                if quick_analysis:
+                    analysis_type = "quick"
                     
                     try:
                         with st.spinner(f"🔄 Performing {analysis_type} analysis..."):
@@ -3048,84 +3124,6 @@ def main():
                     except Exception as e:
                         st.error(f"Analysis error: {e}")
                 
-                elif full_pipeline:
-                    # Enhanced full pipeline implementation
-                    st.header("🚀 Complete Analysis Pipeline")
-                    
-                    try:
-                        # Save uploaded file temporarily
-                        session_dir = get_session_results_dir()
-                        temp_csv_path = session_dir / f"uploaded_{uploaded_file.name}"
-                        
-                        with open(temp_csv_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        
-                        st.info(f"💾 File saved to: {temp_csv_path}")
-                        
-                        # Run complete pipeline with enhanced monitoring
-                        success = run_complete_pipeline(str(temp_csv_path))
-                        
-                        if success:
-                            st.success("🎉 Complete pipeline analysis finished successfully!")
-                            
-                            # Try to load and display results
-                            try:
-                                # Load processed data
-                                processed_csv = session_dir / "processed" / "test.csv"
-                                if processed_csv.exists():
-                                    processed_df = pd.read_csv(processed_csv)
-                                    
-                                    st.subheader("📊 Pipeline Results Overview")
-                                    
-                                    col1, col2, col3 = st.columns(3)
-                                    
-                                    with col1:
-                                        st.metric("Processed Samples", f"{len(processed_df):,}")
-                                    with col2:
-                                        st.metric("Processing Success", "✅ Complete")
-                                    with col3:
-                                        st.metric("Data Quality", "🏆 High")
-                                    
-                                    st.dataframe(processed_df.head(15), use_container_width=True)
-                                    
-                                    # Check for model results
-                                    models_dir = session_dir / "models"
-                                    model_status = []
-                                    
-                                    if (models_dir / "mlp_model.pth").exists():
-                                        st.success("✅ MLP neural network trained successfully")
-                                        model_status.append("MLP")
-                                    if (models_dir / "svm_model.pkl").exists():
-                                        st.success("✅ SVM classifier trained successfully")
-                                        model_status.append("SVM")
-                                    
-                                    # Check for reports
-                                    reports_dir = session_dir / "reports"
-                                    if (reports_dir / "evaluation_report.json").exists():
-                                        st.success("✅ Comprehensive evaluation report generated")
-                                    
-                                    # Pipeline completion summary
-                                    st.subheader("🏆 Pipeline Completion Summary")
-                                    st.markdown(f"""
-                                    **🎯 Training Results:**
-                                    - Models trained: {', '.join(model_status) if model_status else 'None'}
-                                    - Data processing: Complete
-                                    - Evaluation reports: Generated
-                                    - Session directory: `{session_dir}`
-                                    
-                                    **⚡ Next Steps:**
-                                    1. Refresh the page to use newly trained models
-                                    2. Go to 'Models & Predictions' tab to test predictions
-                                    3. Check 'Download Results' tab for comprehensive reports
-                                    """)
-                                    
-                            except Exception as e:
-                                st.warning(f"⚠️ Could not display detailed pipeline results: {e}")
-                                st.info("💡 Pipeline completed but result display encountered issues.")
-                        else:
-                            st.error("❌ Complete pipeline analysis failed. Check the pipeline steps above for details.")
-                    except Exception as e:
-                        st.error(f"Pipeline error: {e}")
             else:
                 # Enhanced guidance when no file uploaded
                 st.markdown("""
@@ -3139,17 +3137,7 @@ def main():
                 - Basic statistical analysis and insights
                 - Quick visualization generation
                 
-                **🔍 Deep Analysis**  
-                - Comprehensive semantic pattern recognition
-                - Advanced linguistic feature extraction
-                - Detailed quality assessment and recommendations
-                - Enhanced visualization suite with wordclouds
                 
-                **🚀 Full Pipeline**
-                - Complete end-to-end processing workflow
-                - Automated model training (MLP + SVM)
-                - Comprehensive evaluation and reporting
-                - Production-ready model generation
                 
                 ### 📋 Supported File Formats:
                 
@@ -3416,12 +3404,12 @@ def main():
                 **🔄 Scientific Analysis Path:**
                 1. 📂 Go to **'CSV Analysis'** tab
                 2. 📁 Upload your CSV file
-                3. ⚡ Click **'Quick Analysis'** or 🔍 **'Deep Analysis'**
+                3. ⚡ Click **'Quick Analysis'**
                 4. 🔄 Return here to download scientific results
                 
                 **🚀 Complete Scientific Pipeline:**
                 1. 📂 Upload CSV in **'CSV Analysis'** tab
-                2. 🚀 Run **'Full Pipeline'** for model training
+                2. 🚀 Train models using your preferred method
                 3. 📊 Get complete analysis with trained models
                 4. 📥 Download all scientific results and reports
                 
