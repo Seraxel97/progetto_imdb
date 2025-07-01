@@ -5,7 +5,7 @@ Generates comprehensive evaluation reports for trained sentiment analysis models
 
 FEATURES:
 - Evaluates both MLP and SVM models automatically
-- Multiple evaluation methods (predictor-based and direct embeddings)
+- Multiple evaluation methods using direct embeddings
 - Comprehensive reporting with plots, metrics, and insights
 - Robust error handling with detailed diagnostics
 - Full pipeline integration with structured output

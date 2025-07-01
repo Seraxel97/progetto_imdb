@@ -109,7 +109,6 @@ def show_help():
     print("   main.py                     # This entry point")
     print("   gui_data_dashboard.py       # Streamlit GUI")
     print("   scripts/config_constants.py # Configuration")
-    print("   scripts/predictor.py        # Prediction engine")
     print("   scripts/pipeline_automation.py # Training pipeline")
     print("   data/                       # Training data")
     print("   results/                    # Models & results")

@@ -112,6 +112,8 @@ Il file `imdb_raw.csv` sarà processato automaticamente.
 * Inserimento manuale recensioni
 * Visualizzazione metriche, report e grafici
 * Nuovo dataset → auto-preprocess → embed → train → salva
+* Analisi avanzate con conteggio parole/frasi e topic extraction
+* Confronto modelli e distribuzione classi nel tab "Advanced Analysis"
 
 ---
 

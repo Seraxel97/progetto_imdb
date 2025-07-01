@@ -810,7 +810,7 @@ class AdvancedEmbeddingGenerator:
                 'project_root': str(self.project_root),
                 'generation_script': str(__file__),
                 'python_version': sys.version,
-                'compatible_with': ['predictor.py', 'train_mlp.py', 'train_svm.py', 'report.py']
+                'compatible_with': ['train_mlp.py', 'train_svm.py', 'report.py']
             }
         }
         
