@@ -15,7 +15,7 @@ try:
 except Exception:
     WORDCLOUD_AVAILABLE = False
 
-from enhanced_utils_unified import (
+from scripts.enhanced_utils_unified import (
     get_top_phrases,
     extract_topics,
     extract_keywords_by_label,

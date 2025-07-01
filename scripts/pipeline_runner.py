@@ -308,7 +308,7 @@ class PipelineRunner:
             logger.info("📦 Loading enhanced utilities...")
             
             try:
-                from enhanced_utils_unified import auto_embed_and_predict
+                from scripts.enhanced_utils_unified import auto_embed_and_predict
                 results['steps']['enhanced_utils_loaded'] = {'success': True}
             except ImportError as e:
                 error_msg = f"Failed to import enhanced_utils_unified: {e}"
@@ -823,7 +823,7 @@ class PipelineRunner:
             
             # Generate insights using enhanced_utils if available
             try:
-                from enhanced_utils_unified import generate_insights
+                from scripts.enhanced_utils_unified import generate_insights
                 insights = generate_insights(df)
                 analysis['insights'] = insights
                 logger.info(f"   Generated {len(insights)} insights")
@@ -957,7 +957,7 @@ def run_dataset_analysis(csv_path: str) -> Dict[str, Any]:
         # Initialize internal predictor for sample predictions
         predictor = None
         try:
-            from enhanced_utils_unified import SentimentPredictor
+            from scripts.enhanced_utils_unified import SentimentPredictor
             predictor = SentimentPredictor()
             logger.info("✅ Predictor initialized for analysis")
         except Exception as pred_error:
