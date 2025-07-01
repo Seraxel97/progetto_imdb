@@ -954,30 +954,14 @@ def run_dataset_analysis(csv_path: str) -> Dict[str, Any]:
         # Initialize pipeline runner
         runner = PipelineRunner()
         
-        # Try to load predictor for sample predictions
+        # Initialize internal predictor for sample predictions
         predictor = None
         try:
-            from predictor import SentimentPredictor
-            
-            # Check for available models
-            model_info = runner.get_model_info()
-            
-            if model_info['svm']['exists']:
-                predictor = SentimentPredictor(
-                    model_path=model_info['svm']['path'],
-                    metadata_path=str(runner.paths['embedding_metadata']),
-                    model_type='svm'
-                )
-                logger.info("✅ SVM predictor loaded for analysis")
-            elif model_info['mlp']['exists']:
-                predictor = SentimentPredictor(
-                    model_path=model_info['mlp']['path'],
-                    metadata_path=str(runner.paths['embedding_metadata']),
-                    model_type='mlp'
-                )
-                logger.info("✅ MLP predictor loaded for analysis")
+            from enhanced_utils_unified import SentimentPredictor
+            predictor = SentimentPredictor()
+            logger.info("✅ Predictor initialized for analysis")
         except Exception as pred_error:
-            logger.warning(f"⚠️ Predictor loading failed: {pred_error}")
+            logger.warning(f"⚠️ Predictor initialization failed: {pred_error}")
         
         # Execute analysis
         analysis_results = runner.analyze_csv_dataset(

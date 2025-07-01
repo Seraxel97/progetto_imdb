@@ -438,11 +438,9 @@ def analyze_text(text: str) -> Dict[str, Any]:
                 "error": "Invalid input text"
             }
         
-        # Predict sentiment first (if predictor available)
+        # Predict sentiment first using the internal predictor (if available)
         sentiment_label = "unknown"
         try:
-            # Try to import and use predictor
-            from predictor import SentimentPredictor
             predictor = SentimentPredictor()
             if predictor.models:
                 prediction = predictor.predict(text)
@@ -1473,15 +1471,9 @@ def auto_embed_and_predict(file_path: str, fast_mode: bool = True,
         
         # Try to load trained models and make predictions for GUI
         try:
-            # Import predictor if available
-            try:
-                from predictor import SentimentPredictor
-                predictor_available = True
-            except ImportError:
-                predictor_available = False
-                logger.warning("SentimentPredictor not available")
-            
-            if predictor_available and test_data_path.exists():
+            predictor = SentimentPredictor()
+
+            if test_data_path.exists():
                 # Look for trained models
                 mlp_path = models_dir / "mlp_model.pth"
                 svm_path = models_dir / "svm_model.pkl"
@@ -1931,12 +1923,13 @@ def analyze_csv_with_predictor(
     if save_results:
         if results_dir is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            results_dir = os.path.join('results', f'csv_analysis_{timestamp}')
-        
-        os.makedirs(results_dir, exist_ok=True)
-        
+            results_dir = Path('results') / f'csv_analysis_{timestamp}'
+
+        results_dir = Path(results_dir)
+        results_dir.mkdir(parents=True, exist_ok=True)
+
         # Save main results
-        results_file = os.path.join(results_dir, 'analysis_results.json')
+        results_file = results_dir / 'analysis_results.json'
         with open(results_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         
@@ -1947,10 +1940,10 @@ def analyze_csv_with_predictor(
                 pred_df[f'{model_name}_prediction'] = predictions
                 pred_df[f'{model_name}_sentiment'] = ['Positive' if p == 1 else 'Negative' for p in predictions]
             
-            pred_file = os.path.join(results_dir, 'predictions.csv')
+            pred_file = results_dir / 'predictions.csv'
             pred_df.to_csv(pred_file, index=False, encoding='utf-8')
-        
-        results['results_dir'] = results_dir
+
+        results['results_dir'] = str(results_dir)
         logger.info(f"Results saved to: {results_dir}")
     
     logger.info("Analysis completed successfully")

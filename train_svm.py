@@ -9,7 +9,7 @@ FEATURES:
 - Uses LinearSVC with proven parameters (C=1.0, class_weight='balanced')
 - Optional dataset reduction for ultra-fast training with --fast flag
 - Maintains 81.5-82% accuracy on IMDb sentiment analysis
-- Full compatibility with predictor.py, report.py, GUI, and pipeline automation
+- Full compatibility with report.py, GUI, and pipeline automation
 - Robust model saving with structured output directories
 - Professional logging system
 
@@ -611,7 +611,7 @@ def save_model_package(model_package, output_dir, logger):
             'classification_report': model_package['classification_report'],
             'confusion_matrix': model_package['confusion_matrix'],
             'model_file': str(model_path),
-            'compatible_with': ['predictor.py', 'report.py', 'GUI', 'pipeline_automation.py']
+            'compatible_with': ['report.py', 'GUI', 'pipeline_automation.py']
         }
         
         # Add GridSearch specific metadata if available

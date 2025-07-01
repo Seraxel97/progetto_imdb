@@ -1707,13 +1707,13 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
             for sentiment in ['positive', 'negative', 'neutral']:
                 if phrase_analysis.get(sentiment, {}).get('phrases'):
                     phrases = phrase_analysis[sentiment]['phrases'][:10]
-                    
+
                     if phrases:
-                                                    with st.expander(f"🔍 {sentiment.title()} Phrases ({len(phrases)} found)"):
+                        with st.expander(f"🔍 {sentiment.title()} Phrases ({len(phrases)} found)"):
                             phrase_df = pd.DataFrame(phrases)
-                            
+
                             col1, col2 = st.columns(2)
-                            
+
                             with col1:
                                 fig_phrase = px.bar(
                                     phrase_df,
@@ -1725,7 +1725,7 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                                     color_continuous_scale='viridis'
                                 )
                                 st.plotly_chart(fig_phrase, use_container_width=True)
-                            
+
                             with col2:
                                 st.markdown("**Top Phrases:**")
                                 for phrase_info in phrases[:5]:
@@ -2487,13 +2487,14 @@ def main():
             main_df, main_dataset_path = load_main_dataset()
         
         # FIXED: Create tabs with proper structure
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "📊 Dataset Overview", 
-            "🧠 Models & Predictions", 
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+            "📊 Dataset Overview",
+            "🧠 Models & Predictions",
             "📈 Graphics & Statistics",
             "🔍 Deep Text Analysis",
-            "📂 CSV Analysis", 
-            "📥 Download Results"
+            "📂 CSV Analysis",
+            "📥 Download Results",
+            "🚀 Advanced Analysis"
         ])
         
         # Tab 1: FIXED Dataset Overview
@@ -4144,7 +4145,85 @@ def main():
                 
                 Start your enhanced scientific analysis in the **CSV Analysis** tab! 🔬🚀
                 """)
-        
+
+        # Tab 7: Advanced Analysis
+        with tab7:
+            st.header("🚀 Advanced Analysis")
+
+            if 'current_analysis' in st.session_state:
+                try:
+                    analysis = st.session_state['current_analysis']
+                    df = analysis.get('df')
+                    stats = analysis.get('stats', {})
+                    predictions = analysis.get('predictions', {})
+                    metrics = analysis.get('metrics', {})
+
+                    st.subheader("Dataset Summary")
+                    if stats:
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Total Samples", f"{stats.get('total_reviews', len(df)):,}")
+                        total_words = stats.get('deep_analysis', {}).get('basic_stats', {}).get('total_words', 0)
+                        c2.metric("Total Words", f"{total_words:,}")
+                        avg_sent = stats.get('deep_analysis', {}).get('basic_stats', {}).get('avg_sentences_per_text', 0)
+                        c3.metric("Avg Sentences/Text", f"{avg_sent:.2f}")
+
+                    if predictions:
+                        st.subheader("Class Distributions")
+                        for model_name, pred in predictions.items():
+                            pred_series = pd.Series(pred)
+                            counts = pred_series.value_counts().sort_index()
+                            label_map = {0: 'Negative', 1: 'Positive', 2: 'Neutral'}
+                            labels = [label_map.get(i, i) for i in counts.index]
+                            fig = px.bar(x=labels, y=counts.values,
+                                         labels={'x': 'Sentiment', 'y': 'Count'},
+                                         title=f"{model_name.upper()} Predictions")
+                            st.plotly_chart(fig, use_container_width=True)
+
+                    advanced = stats.get('advanced_analysis', {})
+                    if advanced.get('keywords_by_sentiment'):
+                        st.subheader("Most Frequent Words")
+                        for sent, data in advanced['keywords_by_sentiment'].items():
+                            words = data.get('keywords', [])[:10]
+                            if words:
+                                df_words = pd.DataFrame(words)
+                                fig = px.bar(df_words, x='keyword', y='score',
+                                             title=f"{sent.title()} Top Words")
+                                st.plotly_chart(fig, use_container_width=True)
+
+                    if advanced.get('phrases_by_sentiment'):
+                        st.subheader("Common Phrases")
+                        for sent, data in advanced['phrases_by_sentiment'].items():
+                            phrases = data.get('phrases', [])[:10]
+                            if phrases:
+                                st.markdown(f"**{sent.title()}**")
+                                df_ph = pd.DataFrame(phrases)
+                                st.dataframe(df_ph, use_container_width=True)
+
+                    if advanced.get('topics_by_sentiment'):
+                        st.subheader("Topic Extraction")
+                        for sent, data in advanced['topics_by_sentiment'].items():
+                            topics = data.get('topics', [])[:10]
+                            if topics:
+                                df_topic = pd.DataFrame(topics)
+                                fig = px.bar(df_topic, x='topic', y='relevance',
+                                             title=f"{sent.title()} Topics")
+                                st.plotly_chart(fig, use_container_width=True)
+
+                    if metrics:
+                        st.subheader("Model Comparison")
+                        comp_df = pd.DataFrame([
+                            {'Model': m.upper(), 'Avg Confidence': met.get('confidence_avg', 0)}
+                            for m, met in metrics.items()
+                        ])
+                        fig = px.bar(comp_df, x='Model', y='Avg Confidence',
+                                     color='Model', title='Average Confidence by Model')
+                        st.plotly_chart(fig, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"Advanced analysis error: {e}")
+            else:
+                st.info("ℹ️ Run an analysis first from the CSV Analysis tab.")
+
         # Enhanced Footer
         st.markdown("---")
         st.markdown("""
@@ -4161,6 +4240,7 @@ def main():
     except Exception as e:
         st.error(f"Critical application error: {e}")
         st.info("Please refresh the page and try again.")
+
 
 if __name__ == "__main__":
     main()
