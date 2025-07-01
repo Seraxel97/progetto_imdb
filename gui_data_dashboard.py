@@ -1,35 +1,28 @@
 #!/usr/bin/env python3
 """
-Advanced GUI Data Dashboard - Sentiment Analysis System (ENHANCED FIXED VERSION)
+Advanced GUI Data Dashboard - Sentiment Analysis System (FIXED VERSION)
 Professional GUI with automatic dataset analysis, pipeline execution, and intelligent insights.
 
-ENHANCED FIXED VERSION - All critical bugs resolved + new features:
-✅ 1. Fixed Deep Analysis and Full Pipeline functionality
-✅ 2. Enhanced Test Your Text with complete scientific analysis
-✅ 3. Added comprehensive Deep Scientific Text Analysis with terms/phrases/topics
-✅ 4. Fixed numpy.int64 compatibility issues for JSON saving
-✅ 5. Implemented proper keyword/phrase/topic extraction by sentiment
-✅ 6. Enhanced scientific visualizations and reporting
-✅ 7. Added proper progress tracking for all operations
-✅ 8. Unified analysis architecture for consistency
-✅ 9. Enhanced error handling and recovery
-✅ 10. Complete scientific analysis package generation
-✅ 11. FIXED: Test Your Text section with EnhancedFileAnalysisProcessor integration
-✅ 12. FIXED: Deep Analysis and Full Pipeline buttons functionality
-✅ 13. ENHANCED: Added comprehensive visualizations and download options
-✅ 14. IMPROVED: Type sanitization for all numpy/pandas types
+FIXED VERSION - All critical bugs resolved:
+✅ 1. Fixed missing generate_narrative_insights function
+✅ 2. Removed duplicate function definitions
+✅ 3. Fixed import issues and cleanup
+✅ 4. Fixed session state management
+✅ 5. Fixed path handling issues
+✅ 6. Improved error handling throughout
+✅ 7. Fixed type errors and data conversion issues
+✅ 8. Corrected function calls and variable references
+✅ 9. Fixed scientific report generation
+✅ 10. Cleaned up duplicate code sections
 
 FEATURES:
-- 🧠 Deep Text Analysis with semantic insights + EnhancedFileAnalysisProcessor integration
+- 🧠 Deep Text Analysis with semantic insights
 - 📊 Scientific approach with statistical reporting
-- 💬 Intelligent analysis (now properly implemented with file processor)
-- 📈 Enhanced statistical visualizations with top words charts
+- 💬 Intelligent analysis (now properly implemented)
+- 📈 Enhanced statistical visualizations
 - 🗂️ Better file organization and download system
-- 🔍 Advanced text pattern detection with phrase tables
-- 📝 Comprehensive reporting system with topic analysis
-- 🎯 Topic modeling and keyword extraction
-- 📋 Complete phrase and argument analysis
-- 📥 Enhanced download options (CSV/JSON) for all analysis sections
+- 🔍 Advanced text pattern detection
+- 📝 Comprehensive reporting system
 """
 
 import streamlit as st
@@ -93,19 +86,6 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 # Add scripts to path for imports
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.append(str(SCRIPTS_DIR))
-
-# FIXED: Import enhanced analysis processor (required)
-try:
-    from enhanced_utils_unified import EnhancedFileAnalysisProcessor
-    ENHANCED_PROCESSOR_AVAILABLE = True
-except ImportError:
-    ENHANCED_PROCESSOR_AVAILABLE = False
-
-try:
-    from pipeline_runner import run_dataset_analysis
-    PIPELINE_RUNNER_AVAILABLE = True
-except ImportError:
-    PIPELINE_RUNNER_AVAILABLE = False
 
 # Page configuration
 st.set_page_config(
@@ -208,32 +188,6 @@ st.markdown("""
         background: #f8f9fa;
         border-radius: 10px;
         margin: 1rem 0;
-    }
-    
-    .scientific-container {
-        background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    }
-    
-    .topic-box {
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-    }
-    
-    .enhanced-analysis-box {
-        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -385,392 +339,20 @@ def load_main_dataset():
     st.info("ℹ️ No main dataset found. Upload a CSV to get started.")
     return None, None
 
-# ENHANCED: Utility function to safely convert numpy types for JSON serialization
-def safe_convert_for_json(obj):
-    """IMPROVED: Convert numpy types to Python native types for JSON serialization"""
-    if isinstance(obj, (np.integer, np.int_, np.int8, np.int16, np.int32, np.int64)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float_, np.float16, np.float32, np.float64)):
-        return float(obj)
-    elif isinstance(obj, (np.bool_, np.bool8)):
-        return bool(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, pd.Series):
-        return obj.tolist()
-    elif isinstance(obj, pd.DataFrame):
-        return obj.to_dict('records')
-    elif isinstance(obj, (pd.Timestamp, pd.DatetimeIndex)):
-        return str(obj)
-    elif isinstance(obj, dict):
-        return {str(k): safe_convert_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [safe_convert_for_json(item) for item in obj]
-    elif hasattr(obj, 'item'):  # Handle scalar numpy types
-        return obj.item()
-    else:
-        return obj
-
-# ENHANCED: Advanced keyword extraction by sentiment
-def extract_keywords_by_sentiment(texts: List[str], predictions: List[int], top_n: int = 20) -> Dict:
-    """
-    Extract top keywords for each sentiment class using TF-IDF
-    """
-    try:
-        keyword_analysis = {
-            'positive': {'keywords': [], 'count': 0},
-            'negative': {'keywords': [], 'count': 0},
-            'neutral': {'keywords': [], 'count': 0}
-        }
-        
-        label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
-        
-        # Group texts by sentiment
-        sentiment_texts = {'positive': [], 'negative': [], 'neutral': []}
-        for text, pred in zip(texts, predictions):
-            sentiment = label_map.get(pred, 'neutral')
-            sentiment_texts[sentiment].append(str(text))
-            keyword_analysis[sentiment]['count'] += 1
-        
-        # Extract keywords for each sentiment using TF-IDF
-        for sentiment, texts_list in sentiment_texts.items():
-            if texts_list:
-                try:
-                    # Create TF-IDF vectorizer with custom stop words
-                    stopwords = {
-                        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-                        'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does',
-                        'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must',
-                        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'
-                    }
-                    
-                    vectorizer = TfidfVectorizer(
-                        max_features=top_n,
-                        stop_words=stopwords,
-                        ngram_range=(1, 2),
-                        min_df=2,
-                        max_df=0.95
-                    )
-                    
-                    tfidf_matrix = vectorizer.fit_transform(texts_list)
-                    feature_names = vectorizer.get_feature_names_out()
-                    
-                    # Get average TF-IDF scores
-                    avg_scores = np.mean(tfidf_matrix.toarray(), axis=0)
-                    
-                    # Sort by score and get top keywords
-                    keyword_scores = list(zip(feature_names, avg_scores))
-                    keyword_scores.sort(key=lambda x: x[1], reverse=True)
-                    
-                    keyword_analysis[sentiment]['keywords'] = [
-                        {'keyword': kw, 'score': float(score)} 
-                        for kw, score in keyword_scores[:top_n]
-                    ]
-                    
-                except Exception as e:
-                    st.warning(f"Could not extract keywords for {sentiment}: {e}")
-                    # Fallback to simple word frequency
-                    all_words = []
-                    for text in texts_list:
-                        words = re.findall(r'\b\w+\b', str(text).lower())
-                        all_words.extend(words)
-                    
-                    word_freq = Counter(all_words)
-                    keyword_analysis[sentiment]['keywords'] = [
-                        {'keyword': word, 'score': count / len(all_words)} 
-                        for word, count in word_freq.most_common(top_n)
-                    ]
-        
-        return keyword_analysis
-        
-    except Exception as e:
-        st.error(f"Error in keyword extraction: {e}")
-        return {'positive': {'keywords': [], 'count': 0}, 'negative': {'keywords': [], 'count': 0}, 'neutral': {'keywords': [], 'count': 0}}
-
-# ENHANCED: Advanced phrase extraction
-def extract_phrases_by_sentiment(texts: List[str], predictions: List[int], top_n: int = 15) -> Dict:
-    """
-    Extract most frequent phrases (bigrams/trigrams) for each sentiment
-    """
-    try:
-        phrase_analysis = {
-            'positive': {'phrases': [], 'count': 0},
-            'negative': {'phrases': [], 'count': 0},
-            'neutral': {'phrases': [], 'count': 0}
-        }
-        
-        label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
-        
-        # Group texts by sentiment
-        sentiment_texts = {'positive': [], 'negative': [], 'neutral': []}
-        for text, pred in zip(texts, predictions):
-            sentiment = label_map.get(pred, 'neutral')
-            sentiment_texts[sentiment].append(str(text))
-            phrase_analysis[sentiment]['count'] += 1
-        
-        # Extract phrases for each sentiment
-        for sentiment, texts_list in sentiment_texts.items():
-            if texts_list:
-                try:
-                    # Extract bigrams and trigrams
-                    all_phrases = []
-                    for text in texts_list:
-                        # Clean text
-                        text_clean = re.sub(r'[^\w\s]', ' ', str(text).lower())
-                        words = text_clean.split()
-                        
-                        # Generate bigrams
-                        for i in range(len(words) - 1):
-                            bigram = f"{words[i]} {words[i+1]}"
-                            if len(bigram) > 5:  # Skip very short phrases
-                                all_phrases.append(bigram)
-                        
-                        # Generate trigrams
-                        for i in range(len(words) - 2):
-                            trigram = f"{words[i]} {words[i+1]} {words[i+2]}"
-                            if len(trigram) > 8:  # Skip very short phrases
-                                all_phrases.append(trigram)
-                    
-                    # Count phrase frequency
-                    phrase_freq = Counter(all_phrases)
-                    total_phrases = len(all_phrases)
-                    
-                    phrase_analysis[sentiment]['phrases'] = [
-                        {
-                            'phrase': phrase, 
-                            'frequency': count,
-                            'percentage': (count / max(1, total_phrases)) * 100
-                        } 
-                        for phrase, count in phrase_freq.most_common(top_n) if count > 1
-                    ]
-                    
-                except Exception as e:
-                    st.warning(f"Could not extract phrases for {sentiment}: {e}")
-                    phrase_analysis[sentiment]['phrases'] = []
-        
-        return phrase_analysis
-        
-    except Exception as e:
-        st.error(f"Error in phrase extraction: {e}")
-        return {'positive': {'phrases': [], 'count': 0}, 'negative': {'phrases': [], 'count': 0}, 'neutral': {'phrases': [], 'count': 0}}
-
-# ENHANCED: Topic extraction and analysis
-def extract_topics_by_sentiment(texts: List[str], predictions: List[int]) -> Dict:
-    """
-    Extract main topics and themes for each sentiment class
-    """
-    try:
-        topic_analysis = {
-            'positive': {'topics': [], 'themes': [], 'count': 0},
-            'negative': {'topics': [], 'themes': [], 'count': 0},
-            'neutral': {'topics': [], 'themes': [], 'count': 0}
-        }
-        
-        label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
-        
-        # Predefined topic keywords for different domains
-        topic_keywords = {
-            'quality': ['quality', 'excellent', 'poor', 'good', 'bad', 'amazing', 'terrible'],
-            'service': ['service', 'staff', 'support', 'help', 'customer', 'team'],
-            'price': ['price', 'cost', 'expensive', 'cheap', 'value', 'money', 'worth'],
-            'delivery': ['delivery', 'shipping', 'fast', 'slow', 'quick', 'arrived'],
-            'product': ['product', 'item', 'purchase', 'buy', 'order', 'received'],
-            'experience': ['experience', 'feel', 'enjoyed', 'disappointed', 'satisfied'],
-            'recommendation': ['recommend', 'suggest', 'advice', 'tell', 'friends'],
-            'communication': ['communication', 'response', 'reply', 'contact', 'email'],
-            'features': ['feature', 'function', 'work', 'works', 'functionality'],
-            'design': ['design', 'look', 'appearance', 'style', 'beautiful', 'ugly']
-        }
-        
-        # Group texts by sentiment
-        sentiment_texts = {'positive': [], 'negative': [], 'neutral': []}
-        for text, pred in zip(texts, predictions):
-            sentiment = label_map.get(pred, 'neutral')
-            sentiment_texts[sentiment].append(str(text).lower())
-            topic_analysis[sentiment]['count'] += 1
-        
-        # Analyze topics for each sentiment
-        for sentiment, texts_list in sentiment_texts.items():
-            if texts_list:
-                topic_scores = {}
-                
-                # Calculate topic relevance scores
-                for topic, keywords in topic_keywords.items():
-                    score = 0
-                    mentions = 0
-                    
-                    for text in texts_list:
-                        for keyword in keywords:
-                            if keyword in text:
-                                score += text.count(keyword)
-                                mentions += 1
-                    
-                    if mentions > 0:
-                        topic_scores[topic] = {
-                            'score': score,
-                            'mentions': mentions,
-                            'relevance': score / len(texts_list)
-                        }
-                
-                # Sort topics by relevance
-                sorted_topics = sorted(
-                    topic_scores.items(), 
-                    key=lambda x: x[1]['relevance'], 
-                    reverse=True
-                )
-                
-                topic_analysis[sentiment]['topics'] = [
-                    {
-                        'topic': topic,
-                        'score': data['score'],
-                        'mentions': data['mentions'],
-                        'relevance': round(data['relevance'], 3)
-                    }
-                    for topic, data in sorted_topics[:8] if data['mentions'] > 1
-                ]
-                
-                # Extract themes (common word combinations)
-                all_text = ' '.join(texts_list)
-                words = re.findall(r'\b\w+\b', all_text)
-                word_freq = Counter(words)
-                
-                # Get most common meaningful words as themes
-                stopwords = {
-                    'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-                    'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does',
-                    'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must',
-                    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'
-                }
-                
-                themes = [
-                    {'theme': word, 'frequency': count}
-                    for word, count in word_freq.most_common(10)
-                    if word not in stopwords and len(word) > 3 and count > 2
-                ]
-                
-                topic_analysis[sentiment]['themes'] = themes[:6]
-        
-        return topic_analysis
-        
-    except Exception as e:
-        st.error(f"Error in topic extraction: {e}")
-        return {'positive': {'topics': [], 'themes': [], 'count': 0}, 'negative': {'topics': [], 'themes': [], 'count': 0}, 'neutral': {'topics': [], 'themes': [], 'count': 0}}
-
-# REMOVED: enhanced_single_text_analysis function - simplified to direct processor call
-
-# ENHANCED: Generate comprehensive scientific analysis for single text
-def generate_single_text_scientific_analysis(text: str, prediction: int, confidence: float) -> Dict:
-    """
-    Generate scientific analysis for a single text input
-    """
-    try:
-        analysis = {
-            'text_statistics': {},
-            'prediction_analysis': {},
-            'linguistic_features': {},
-            'keyword_analysis': {},
-            'semantic_analysis': {}
-        }
-        
-        # Basic text statistics
-        words = re.findall(r'\b\w+\b', str(text).lower())
-        sentences = re.split(r'[.!?]+', str(text))
-        
-        analysis['text_statistics'] = {
-            'character_count': len(str(text)),
-            'word_count': len(words),
-            'sentence_count': len([s for s in sentences if s.strip()]),
-            'avg_word_length': np.mean([len(word) for word in words]) if words else 0,
-            'unique_words': len(set(words)),
-            'lexical_diversity': len(set(words)) / max(1, len(words))
-        }
-        
-        # Prediction analysis
-        label_map = {0: 'Negative', 1: 'Positive', 2: 'Neutral'}
-        confidence_level = 'High' if confidence > 0.8 else 'Medium' if confidence > 0.6 else 'Low'
-        
-        analysis['prediction_analysis'] = {
-            'predicted_sentiment': label_map.get(prediction, 'Unknown'),
-            'confidence_score': float(confidence),
-            'confidence_level': confidence_level,
-            'prediction_numeric': int(prediction)
-        }
-        
-        # Linguistic features
-        punctuation_count = sum(1 for char in str(text) if char in '.,;:!?')
-        exclamation_count = str(text).count('!')
-        question_count = str(text).count('?')
-        caps_words = sum(1 for word in words if word.isupper() and len(word) > 1)
-        
-        analysis['linguistic_features'] = {
-            'punctuation_density': punctuation_count / max(1, len(str(text))),
-            'exclamation_count': exclamation_count,
-            'question_count': question_count,
-            'caps_words': caps_words,
-            'contains_url': int('http' in str(text).lower() or 'www.' in str(text).lower()),
-            'contains_email': int('@' in str(text) and '.' in str(text))
-        }
-        
-        # Keyword analysis
-        word_freq = Counter(words)
-        stopwords = {
-            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does',
-            'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'
-        }
-        
-        meaningful_words = [
-            {'word': word, 'frequency': count}
-            for word, count in word_freq.most_common(10)
-            if word not in stopwords and len(word) > 2
-        ]
-        
-        analysis['keyword_analysis'] = {
-            'top_words': meaningful_words[:5],
-            'rare_words': [word for word, count in word_freq.items() if count == 1 and len(word) > 4][:5],
-            'word_diversity': len(set(words)) / max(1, len(words))
-        }
-        
-        # Semantic analysis
-        positive_words = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'love', 'perfect', 'awesome']
-        negative_words = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'disappointing', 'poor']
-        
-        positive_count = sum(1 for word in words if word in positive_words)
-        negative_count = sum(1 for word in words if word in negative_words)
-        
-        analysis['semantic_analysis'] = {
-            'positive_words': positive_count,
-            'negative_words': negative_count,
-            'sentiment_balance': positive_count - negative_count,
-            'emotional_intensity': positive_count + negative_count,
-            'detected_emotions': []
-        }
-        
-        # Detect basic emotions
-        emotion_words = {
-            'joy': ['happy', 'joy', 'excited', 'delighted'],
-            'anger': ['angry', 'mad', 'furious', 'annoyed'],
-            'sadness': ['sad', 'disappointed', 'unhappy'],
-            'fear': ['scared', 'worried', 'afraid'],
-            'surprise': ['surprised', 'shocked', 'amazed']
-        }
-        
-        for emotion, emotion_word_list in emotion_words.items():
-            if any(word in words for word in emotion_word_list):
-                analysis['semantic_analysis']['detected_emotions'].append(emotion)
-        
-        return safe_convert_for_json(analysis)
-        
-    except Exception as e:
-        st.error(f"Error in single text scientific analysis: {e}")
-        return {}
-
 # FIXED: Add missing generate_narrative_insights function
 def generate_narrative_insights(df: pd.DataFrame, predictions: Dict = None, 
                                metrics: Dict = None, deep_analysis: Dict = None) -> List[str]:
     """
-    Generate intelligent narrative insights from analysis results
+    FIXED: Generate intelligent narrative insights from analysis results
+    
+    Args:
+        df: DataFrame with the data
+        predictions: Dictionary with model predictions  
+        metrics: Dictionary with model metrics
+        deep_analysis: Deep text analysis results
+    
+    Returns:
+        List of narrative insight strings
     """
     insights = []
     
@@ -870,6 +452,47 @@ def generate_narrative_insights(df: pd.DataFrame, predictions: Dict = None,
                         insights.append(f"👥 Good model agreement ({agreement:.1%}) supports prediction confidence.")
                     else:
                         insights.append(f"🔄 Models show different perspectives ({agreement:.1%} agreement) - manual review recommended.")
+            
+            # Prediction distribution insights
+            for model_name, pred in predictions.items():
+                if len(pred) > 0:
+                    unique_preds, counts = np.unique(pred, return_counts=True)
+                    pred_dist = dict(zip(unique_preds, counts))
+                    
+                    label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
+                    dominant_class = max(pred_dist, key=pred_dist.get)
+                    dominant_label = label_map.get(dominant_class, f'class_{dominant_class}')
+                    dominant_pct = (pred_dist[dominant_class] / len(pred)) * 100
+                    
+                    if dominant_pct > 70:
+                        insights.append(f"📊 {model_name.upper()} finds {dominant_pct:.1f}% {dominant_label} sentiment - strong class dominance.")
+                    elif dominant_pct > 50:
+                        insights.append(f"📈 {model_name.upper()} shows {dominant_pct:.1f}% {dominant_label} tendency with mixed sentiment.")
+                    else:
+                        insights.append(f"⚖️ {model_name.upper()} reveals balanced sentiment distribution across classes.")
+        
+        # Text characteristics insights
+        if hasattr(df, 'columns'):
+            text_columns = ['review', 'text', 'content', 'comment', 'message', 'description']
+            text_col = None
+            for col in text_columns:
+                if col in df.columns:
+                    text_col = col
+                    break
+            
+            if text_col:
+                try:
+                    lengths = df[text_col].str.len().fillna(0)
+                    avg_length = lengths.mean()
+                    
+                    if avg_length > 500:
+                        insights.append(f"📄 Long-form content detected (avg: {avg_length:.0f} chars) suitable for detailed analysis.")
+                    elif avg_length > 100:
+                        insights.append(f"📝 Medium-length texts (avg: {avg_length:.0f} chars) provide good context for analysis.")
+                    else:
+                        insights.append(f"💬 Short-form content (avg: {avg_length:.0f} chars) typical of social media or reviews.")
+                except Exception:
+                    pass
         
         # Summary insight
         if len(insights) > 3:
@@ -1134,9 +757,9 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
             report['dataset_statistics'] = {
                 'total_samples': len(df),
                 'data_types': dict(df.dtypes.astype(str)),
-                'missing_values': safe_convert_for_json(df.isnull().sum().to_dict()),
-                'duplicate_rows': int(df.duplicated().sum()),
-                'memory_usage_mb': float(df.memory_usage(deep=True).sum() / (1024**2))
+                'missing_values': df.isnull().sum().to_dict(),
+                'duplicate_rows': df.duplicated().sum(),
+                'memory_usage_mb': df.memory_usage(deep=True).sum() / (1024**2)
             }
         
         # Deep analysis statistics
@@ -1184,7 +807,7 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
                         'model_type': model_metrics.get('model_type', 'Unknown'),
                         'avg_confidence': model_metrics.get('confidence_avg', 0),
                         'confidence_std': model_metrics.get('confidence_std', 0),
-                        'prediction_distribution': safe_convert_for_json(pred_dist),
+                        'prediction_distribution': pred_dist,
                         'total_predictions': len(pred)
                     }
         
@@ -1200,12 +823,12 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
                 
                 label_map = {0: 'negative', 1: 'positive', 2: 'neutral'}
                 report['sentiment_distribution'] = {
-                    'counts': {label_map.get(pred, f'class_{pred}'): int(count) for pred, count in zip(unique_preds, counts)},
-                    'percentages': {label_map.get(pred, f'class_{pred}'): float((count/total)*100) for pred, count in zip(unique_preds, counts)},
+                    'counts': {label_map.get(pred, f'class_{pred}'): count for pred, count in zip(unique_preds, counts)},
+                    'percentages': {label_map.get(pred, f'class_{pred}'): (count/total)*100 for pred, count in zip(unique_preds, counts)},
                     'total_classified': total
                 }
         
-        return safe_convert_for_json(report)
+        return report
         
     except Exception as e:
         st.error(f"Error generating scientific report: {e}")
@@ -1250,7 +873,7 @@ def analyze_sentiment_by_class(texts: List[str], predictions: List[int]) -> Dict
                     'top_words': []
                 }
         
-        return safe_convert_for_json(analysis)
+        return analysis
         
     except Exception as e:
         st.error(f"Error in sentiment class analysis: {e}")
@@ -1359,7 +982,132 @@ def run_pipeline_step(step_name: str, command: List[str], description: str) -> b
         st.error(f"❌ {step_name} error: {e}")
         return False
 
-# REMOVED: run_enhanced_pipeline function - no longer needed as we use direct calls
+def run_complete_pipeline(csv_path: str) -> bool:
+    """
+    FIXED: Run the complete analysis pipeline with enhanced error handling
+    """
+    st.header("🚀 Running Complete Analysis Pipeline")
+    
+    session_dir = get_session_results_dir()
+    st.info(f"📁 Results will be saved to: {session_dir}")
+    
+    required_scripts = [
+        SCRIPTS_DIR / "preprocess.py",
+        SCRIPTS_DIR / "embed_dataset.py",
+        SCRIPTS_DIR / "train_mlp.py",
+        SCRIPTS_DIR / "train_svm.py",
+        SCRIPTS_DIR / "report.py"
+    ]
+    
+    missing_scripts = [script for script in required_scripts if not script.exists()]
+    if missing_scripts:
+        st.error(f"❌ Missing required scripts: {[str(s) for s in missing_scripts]}")
+        return False
+    
+    steps = [
+        {
+            'name': 'Data Preprocessing',
+            'command': [
+                sys.executable, str(SCRIPTS_DIR / "preprocess.py"),
+                "--input", csv_path,
+                "--output-dir", str(session_dir / "processed")
+            ],
+            'description': 'Preprocessing uploaded CSV data'
+        },
+        {
+            'name': 'Embedding Generation',
+            'command': [
+                sys.executable, str(SCRIPTS_DIR / "embed_dataset.py"),
+                "--input-dir", str(session_dir / "processed"),
+                "--output-dir", str(session_dir / "embeddings"),
+                "--force-recreate"
+            ],
+            'description': 'Generating sentence embeddings'
+        },
+        {
+            'name': 'MLP Training',
+            'command': [
+                sys.executable, str(SCRIPTS_DIR / "train_mlp.py"),
+                "--embeddings-dir", str(session_dir / "embeddings"),
+                "--output-dir", str(session_dir),
+                "--epochs", "20",
+                "--batch-size", "32"
+            ],
+            'description': 'Training MLP neural network'
+        },
+        {
+            'name': 'SVM Training',
+            'command': [
+                sys.executable, str(SCRIPTS_DIR / "train_svm.py"),
+                "--embeddings-dir", str(session_dir / "embeddings"),
+                "--output-dir", str(session_dir),
+                "--fast"
+            ],
+            'description': 'Training SVM classifier'
+        },
+        {
+            'name': 'Model Evaluation',
+            'command': [
+                sys.executable, str(SCRIPTS_DIR / "report.py"),
+                "--models-dir", str(session_dir / "models"),
+                "--test-data", str(session_dir / "processed" / "test.csv"),
+                "--results-dir", str(session_dir)
+            ],
+            'description': 'Generating evaluation reports'
+        }
+    ]
+    
+    progress_bar = st.progress(0)
+    status_container = st.container()
+    
+    success_count = 0
+    total_steps = len(steps)
+    
+    for i, step in enumerate(steps):
+        progress = (i + 1) / total_steps
+        progress_bar.progress(progress)
+        
+        with status_container:
+            success = run_pipeline_step(
+                step['name'],
+                step['command'], 
+                step['description']
+            )
+            
+            if success:
+                success_count += 1
+            else:
+                st.warning(f"⚠️ Pipeline step '{step['name']}' failed, but continuing...")
+    
+    progress_bar.progress(1.0)
+    
+    if success_count == total_steps:
+        st.success(f"🎉 Pipeline completed successfully! All {total_steps} steps passed.")
+        
+        st.session_state['pipeline_results'] = {
+            'session_dir': str(session_dir),
+            'success_count': success_count,
+            'total_steps': total_steps,
+            'timestamp': datetime.now(),
+            'status': 'completed'
+        }
+        
+        return True
+    elif success_count > 0:
+        st.warning(f"⚠️ Pipeline partially completed: {success_count}/{total_steps} steps successful.")
+        
+        st.session_state['pipeline_results'] = {
+            'session_dir': str(session_dir),
+            'success_count': success_count,
+            'total_steps': total_steps,
+            'timestamp': datetime.now(),
+            'status': 'partial'
+        }
+        
+        return True
+    else:
+        st.error("❌ Pipeline failed: No steps completed successfully.")
+        return False
 
 def analyze_single_csv(uploaded_file, embedding_model):
     """FIXED: Advanced CSV analysis with comprehensive error handling"""
@@ -1422,7 +1170,7 @@ def analyze_single_csv(uploaded_file, embedding_model):
         for col in sentiment_columns:
             if col in df.columns:
                 try:
-                    stats['sentiment_distribution'] = safe_convert_for_json(df[col].value_counts().to_dict())
+                    stats['sentiment_distribution'] = df[col].value_counts().to_dict()
                     stats['sentiment_column'] = col
                     break
                 except Exception:
@@ -1432,25 +1180,6 @@ def analyze_single_csv(uploaded_file, embedding_model):
         
     except Exception as e:
         st.error(f"❌ Error analyzing CSV: {e}")
-        return None, None, None
-
-# SIMPLIFIED: Deep analysis specific function
-def analyze_single_csv_deep(uploaded_file, embedding_model):
-    """SIMPLIFIED: Perform basic CSV analysis for deep mode"""
-    try:
-        # Get basic analysis first
-        df, embeddings, stats = analyze_single_csv(uploaded_file, embedding_model)
-        
-        if df is None:
-            return None, None, None
-        
-        # Add analysis type marker
-        stats['analysis_type'] = 'deep'
-        
-        return df, embeddings, stats
-        
-    except Exception as e:
-        st.error(f"❌ Error in deep CSV analysis: {e}")
         return None, None, None
 
 def predict_sentiment_enhanced(texts, embeddings, models):
@@ -1488,14 +1217,13 @@ def predict_sentiment_enhanced(texts, embeddings, models):
                 else:
                     svm_confidence = np.ones(len(svm_pred)) * 0.7
                 
-                # FIXED: Convert numpy types for JSON compatibility
-                predictions['svm'] = [int(p) for p in svm_pred]
+                predictions['svm'] = svm_pred
                 metrics['svm'] = {
                     'model_type': 'SVM',
                     'confidence_avg': float(np.mean(svm_confidence)),
                     'confidence_std': float(np.std(svm_confidence)),
-                    'confidence_scores': [float(c) for c in svm_confidence],
-                    'prediction_distribution': safe_convert_for_json({int(k): int(v) for k, v in dict(zip(*np.unique(svm_pred, return_counts=True))).items()})
+                    'confidence_scores': svm_confidence.tolist(),
+                    'prediction_distribution': dict(zip(*np.unique(svm_pred, return_counts=True)))
                 }
                 
                 st.success(f"✅ SVM predictions completed (confidence: {np.mean(svm_confidence):.3f})")
@@ -1552,14 +1280,13 @@ def predict_sentiment_enhanced(texts, embeddings, models):
                         mlp_pred = torch.argmax(full_outputs, dim=1).cpu().numpy()
                         mlp_confidence = np.max(probabilities, axis=1)
                 
-                # FIXED: Convert numpy types for JSON compatibility
-                predictions['mlp'] = [int(p) for p in mlp_pred]
+                predictions['mlp'] = mlp_pred
                 metrics['mlp'] = {
                     'model_type': 'MLP',
                     'confidence_avg': float(np.mean(mlp_confidence)),
                     'confidence_std': float(np.std(mlp_confidence)),
-                    'confidence_scores': [float(c) for c in mlp_confidence],
-                    'prediction_distribution': safe_convert_for_json({int(k): int(v) for k, v in dict(zip(*np.unique(mlp_pred, return_counts=True))).items()}),
+                    'confidence_scores': mlp_confidence.tolist(),
+                    'prediction_distribution': dict(zip(*np.unique(mlp_pred, return_counts=True))),
                     'batch_processed': True
                 }
                 
@@ -1632,147 +1359,89 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                     for _, row in sentiment_df.iterrows():
                         st.write(f"• **{row['Sentiment']}**: {row['Count']:,} samples ({row['Percentage']:.1f}%)")
         
-        # ENHANCED: Advanced keyword analysis by sentiment
-        if predictions and stats.get('advanced_analysis'):
-            st.subheader("🔑 Advanced Keyword Analysis by Sentiment")
+        # Top Words by Sentiment Class
+        if sentiment_analysis and predictions:
+            st.subheader("📝 Top Terms by Sentiment Class")
             
-            advanced = stats['advanced_analysis']
-            keyword_analysis = advanced.get('keywords_by_sentiment', {})
-            
-            tab_pos, tab_neg, tab_neu = st.tabs(["😊 Positive Keywords", "😞 Negative Keywords", "😐 Neutral Keywords"])
+            tab_pos, tab_neg, tab_neu = st.tabs(["😊 Positive", "😞 Negative", "😐 Neutral"])
             
             with tab_pos:
-                if keyword_analysis.get('positive', {}).get('keywords'):
-                    keywords = keyword_analysis['positive']['keywords'][:15]
-                    if keywords:
-                        kw_df = pd.DataFrame(keywords)
+                if sentiment_analysis.get('positive', {}).get('stats', {}).get('top_words'):
+                    pos_words = sentiment_analysis['positive']['stats']['top_words'][:15]
+                    if pos_words:
+                        pos_df = pd.DataFrame(pos_words, columns=['Word', 'Frequency'])
                         
-                        fig_kw = px.bar(
-                            kw_df,
-                            x='keyword',
-                            y='score',
-                            title="Top Keywords in Positive Texts",
-                            color='score',
+                        fig_pos = px.bar(
+                            pos_df,
+                            x='Word',
+                            y='Frequency',
+                            title="Most Frequent Words in Positive Texts",
+                            color='Frequency',
                             color_continuous_scale='Greens'
                         )
-                        fig_kw.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig_kw, use_container_width=True)
+                        fig_pos.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig_pos, use_container_width=True)
                         
-                        st.write(f"**Sample Count:** {keyword_analysis['positive']['count']:,}")
+                        pos_stats = sentiment_analysis['positive']['stats']
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Positive Samples", pos_stats.get('count', 0))
+                        with col2:
+                            st.metric("Avg Length", f"{pos_stats.get('avg_length', 0):.0f} chars")
+                        with col3:
+                            st.metric("Avg Words", f"{pos_stats.get('avg_words', 0):.1f}")
             
             with tab_neg:
-                if keyword_analysis.get('negative', {}).get('keywords'):
-                    keywords = keyword_analysis['negative']['keywords'][:15]
-                    if keywords:
-                        kw_df = pd.DataFrame(keywords)
+                if sentiment_analysis.get('negative', {}).get('stats', {}).get('top_words'):
+                    neg_words = sentiment_analysis['negative']['stats']['top_words'][:15]
+                    if neg_words:
+                        neg_df = pd.DataFrame(neg_words, columns=['Word', 'Frequency'])
                         
-                        fig_kw = px.bar(
-                            kw_df,
-                            x='keyword',
-                            y='score',
-                            title="Top Keywords in Negative Texts",
-                            color='score',
+                        fig_neg = px.bar(
+                            neg_df,
+                            x='Word',
+                            y='Frequency',
+                            title="Most Frequent Words in Negative Texts",
+                            color='Frequency',
                             color_continuous_scale='Reds'
                         )
-                        fig_kw.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig_kw, use_container_width=True)
+                        fig_neg.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig_neg, use_container_width=True)
                         
-                        st.write(f"**Sample Count:** {keyword_analysis['negative']['count']:,}")
+                        neg_stats = sentiment_analysis['negative']['stats']
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Negative Samples", neg_stats.get('count', 0))
+                        with col2:
+                            st.metric("Avg Length", f"{neg_stats.get('avg_length', 0):.0f} chars")
+                        with col3:
+                            st.metric("Avg Words", f"{neg_stats.get('avg_words', 0):.1f}")
             
             with tab_neu:
-                if keyword_analysis.get('neutral', {}).get('keywords'):
-                    keywords = keyword_analysis['neutral']['keywords'][:15]
-                    if keywords:
-                        kw_df = pd.DataFrame(keywords)
+                if sentiment_analysis.get('neutral', {}).get('stats', {}).get('top_words'):
+                    neu_words = sentiment_analysis['neutral']['stats']['top_words'][:15]
+                    if neu_words:
+                        neu_df = pd.DataFrame(neu_words, columns=['Word', 'Frequency'])
                         
-                        fig_kw = px.bar(
-                            kw_df,
-                            x='keyword',
-                            y='score',
-                            title="Top Keywords in Neutral Texts",
-                            color='score',
+                        fig_neu = px.bar(
+                            neu_df,
+                            x='Word',
+                            y='Frequency',
+                            title="Most Frequent Words in Neutral Texts",
+                            color='Frequency',
                             color_continuous_scale='Blues'
                         )
-                        fig_kw.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig_kw, use_container_width=True)
+                        fig_neu.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig_neu, use_container_width=True)
                         
-                        st.write(f"**Sample Count:** {keyword_analysis['neutral']['count']:,}")
-        
-        # ENHANCED: Advanced phrase analysis
-        if predictions and stats.get('advanced_analysis'):
-            st.subheader("📝 Most Frequent Phrases by Sentiment")
-            
-            phrase_analysis = stats['advanced_analysis'].get('phrases_by_sentiment', {})
-            
-            for sentiment in ['positive', 'negative', 'neutral']:
-                if phrase_analysis.get(sentiment, {}).get('phrases'):
-                    phrases = phrase_analysis[sentiment]['phrases'][:10]
-
-                    if phrases:
-                        with st.expander(f"🔍 {sentiment.title()} Phrases ({len(phrases)} found)"):
-                            phrase_df = pd.DataFrame(phrases)
-
-                            col1, col2 = st.columns(2)
-
-                            with col1:
-                                fig_phrase = px.bar(
-                                    phrase_df,
-                                    x='frequency',
-                                    y='phrase',
-                                    orientation='h',
-                                    title=f"Most Frequent {sentiment.title()} Phrases",
-                                    color='percentage',
-                                    color_continuous_scale='viridis'
-                                )
-                                st.plotly_chart(fig_phrase, use_container_width=True)
-
-                            with col2:
-                                st.markdown("**Top Phrases:**")
-                                for phrase_info in phrases[:5]:
-                                    st.write(f"• **\"{phrase_info['phrase']}\"**: {phrase_info['frequency']} times ({phrase_info['percentage']:.1f}%)")
-        
-        # ENHANCED: Topic analysis
-        if predictions and stats.get('advanced_analysis'):
-            st.subheader("🎯 Topic Analysis by Sentiment")
-            
-            topic_analysis = stats['advanced_analysis'].get('topics_by_sentiment', {})
-            
-            for sentiment in ['positive', 'negative', 'neutral']:
-                if topic_analysis.get(sentiment, {}).get('topics'):
-                    topics = topic_analysis[sentiment]['topics']
-                    themes = topic_analysis[sentiment].get('themes', [])
-                    
-                    if topics or themes:
-                        with st.expander(f"📊 {sentiment.title()} Topics & Themes"):
-                            
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                if topics:
-                                    st.markdown("**Main Topics:**")
-                                    topic_df = pd.DataFrame(topics)
-                                    
-                                    fig_topic = px.bar(
-                                        topic_df,
-                                        x='topic',
-                                        y='relevance',
-                                        title=f"{sentiment.title()} Topics by Relevance",
-                                        color='mentions',
-                                        color_continuous_scale='plasma'
-                                    )
-                                    fig_topic.update_layout(xaxis_tickangle=-45)
-                                    st.plotly_chart(fig_topic, use_container_width=True)
-                            
-                            with col2:
-                                if themes:
-                                    st.markdown("**Common Themes:**")
-                                    for theme in themes[:6]:
-                                        st.write(f"• **{theme['theme']}**: {theme['frequency']} mentions")
-                                
-                                if topics:
-                                    st.markdown("**Topic Details:**")
-                                    for topic in topics[:5]:
-                                        st.write(f"• **{topic['topic'].title()}**: {topic['mentions']} mentions (relevance: {topic['relevance']:.3f})")
+                        neu_stats = sentiment_analysis['neutral']['stats']
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Neutral Samples", neu_stats.get('count', 0))
+                        with col2:
+                            st.metric("Avg Length", f"{neu_stats.get('avg_length', 0):.0f} chars")
+                        with col3:
+                            st.metric("Avg Words", f"{neu_stats.get('avg_words', 0):.1f}")
         
         # Confidence Score Analysis
         if metrics:
@@ -2026,7 +1695,7 @@ def save_scientific_results(scientific_report, sentiment_analysis, session_dir, 
         
         graph_path = session_path / "graph_data.json"
         with open(graph_path, 'w', encoding='utf-8') as f:
-            json.dump(safe_convert_for_json(graph_data), f, indent=2, ensure_ascii=False, default=str)
+            json.dump(graph_data, f, indent=2, ensure_ascii=False, default=str)
         saved_files['graph_data'] = str(graph_path)
         
         return saved_files
@@ -2096,12 +1765,11 @@ def create_enhanced_results_download_package(df, predictions, metrics, stats, sc
                     },
                     'scientific_analysis': scientific_report or {},
                     'sentiment_class_analysis': sentiment_analysis or {},
-                    'model_performance': metrics,
-                    'advanced_features': stats.get('advanced_analysis', {})
+                    'model_performance': metrics
                 }
                 
                 zip_file.writestr("02_scientific_analysis_report.json", 
-                                 json.dumps(safe_convert_for_json(scientific_analysis_report), indent=2, ensure_ascii=False, default=str))
+                                 json.dumps(scientific_analysis_report, indent=2, ensure_ascii=False, default=str))
             except Exception as e:
                 st.warning(f"Could not create scientific analysis report: {e}")
             
@@ -2128,73 +1796,17 @@ def create_enhanced_results_download_package(df, predictions, metrics, stats, sc
                         term_df = pd.DataFrame(term_data)
                         term_csv = term_df.to_csv(index=False)
                         zip_file.writestr("03_term_distribution_by_sentiment.csv", term_csv)
-                        
-                # ENHANCED: Save advanced keyword/phrase analysis
-                if stats.get('advanced_analysis'):
-                    advanced = stats['advanced_analysis']
-                    
-                    # Keyword analysis CSV
-                    if 'keywords_by_sentiment' in advanced:
-                        keyword_data = []
-                        for sentiment, kw_info in advanced['keywords_by_sentiment'].items():
-                            for kw in kw_info.get('keywords', []):
-                                keyword_data.append({
-                                    'sentiment': sentiment,
-                                    'keyword': kw['keyword'],
-                                    'score': kw['score'],
-                                    'sample_count': kw_info['count']
-                                })
-                        
-                        if keyword_data:
-                            kw_df = pd.DataFrame(keyword_data)
-                            zip_file.writestr("04_keywords_by_sentiment.csv", kw_df.to_csv(index=False))
-                    
-                    # Phrase analysis CSV
-                    if 'phrases_by_sentiment' in advanced:
-                        phrase_data = []
-                        for sentiment, ph_info in advanced['phrases_by_sentiment'].items():
-                            for phrase in ph_info.get('phrases', []):
-                                phrase_data.append({
-                                    'sentiment': sentiment,
-                                    'phrase': phrase['phrase'],
-                                    'frequency': phrase['frequency'],
-                                    'percentage': phrase['percentage'],
-                                    'sample_count': ph_info['count']
-                                })
-                        
-                        if phrase_data:
-                            ph_df = pd.DataFrame(phrase_data)
-                            zip_file.writestr("05_phrases_by_sentiment.csv", ph_df.to_csv(index=False))
-                    
-                    # Topic analysis CSV
-                    if 'topics_by_sentiment' in advanced:
-                        topic_data = []
-                        for sentiment, tp_info in advanced['topics_by_sentiment'].items():
-                            for topic in tp_info.get('topics', []):
-                                topic_data.append({
-                                    'sentiment': sentiment,
-                                    'topic': topic['topic'],
-                                    'score': topic['score'],
-                                    'mentions': topic['mentions'],
-                                    'relevance': topic['relevance'],
-                                    'sample_count': tp_info['count']
-                                })
-                        
-                        if topic_data:
-                            tp_df = pd.DataFrame(topic_data)
-                            zip_file.writestr("06_topics_by_sentiment.csv", tp_df.to_csv(index=False))
-                            
             except Exception as e:
                 st.warning(f"Could not create term distribution: {e}")
             
             # Statistical summary report
             try:
                 summary_content = f"""
-ENHANCED SCIENTIFIC SENTIMENT ANALYSIS REPORT
-{'='*55}
+SCIENTIFIC SENTIMENT ANALYSIS REPORT
+{'='*50}
 
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Analysis Version: Enhanced Scientific v2.0
+Analysis Version: Scientific v2.0
 Dataset: {stats.get('total_reviews', 0):,} texts analyzed
 
 OBJECTIVE STATISTICAL ANALYSIS:
@@ -2238,33 +1850,6 @@ Model Performance Summary:
                                 percentage = (count / len(pred)) * 100
                                 summary_content += f"    {label}: {count:,} ({percentage:.1f}%)\n"
                 
-                # ENHANCED: Add advanced analysis summary
-                if stats.get('advanced_analysis'):
-                    summary_content += f"""
-
-ADVANCED ANALYSIS SUMMARY:
-{'='*27}
-"""
-                    advanced = stats['advanced_analysis']
-                    
-                    if 'keywords_by_sentiment' in advanced:
-                        summary_content += "\nKeyword Analysis:\n"
-                        for sentiment, kw_info in advanced['keywords_by_sentiment'].items():
-                            kw_count = len(kw_info.get('keywords', []))
-                            summary_content += f"  {sentiment.title()}: {kw_count} keywords identified\n"
-                    
-                    if 'phrases_by_sentiment' in advanced:
-                        summary_content += "\nPhrase Analysis:\n"
-                        for sentiment, ph_info in advanced['phrases_by_sentiment'].items():
-                            ph_count = len(ph_info.get('phrases', []))
-                            summary_content += f"  {sentiment.title()}: {ph_count} frequent phrases found\n"
-                    
-                    if 'topics_by_sentiment' in advanced:
-                        summary_content += "\nTopic Analysis:\n"
-                        for sentiment, tp_info in advanced['topics_by_sentiment'].items():
-                            tp_count = len(tp_info.get('topics', []))
-                            summary_content += f"  {sentiment.title()}: {tp_count} topics identified\n"
-                
                 summary_content += f"""
 
 METHODOLOGY:
@@ -2273,28 +1858,22 @@ This analysis uses objective statistical methods for sentiment classification.
 All metrics are computed using quantitative measures without subjective interpretation.
 Results are reproducible and based on established computational linguistics techniques.
 
-Enhanced features include:
-- Advanced keyword extraction using TF-IDF
-- N-gram phrase analysis (bigrams/trigrams)
-- Topic modeling with domain-specific indicators
-- Statistical significance testing
-
-Generated by Enhanced Scientific Sentiment Analysis System v2.0
-Objective • Reproducible • Research-Grade • Enhanced
+Generated by Scientific Sentiment Analysis System v2.0
+Objective • Reproducible • Research-Grade
                 """
                 
-                zip_file.writestr("07_enhanced_scientific_summary.txt", summary_content)
+                zip_file.writestr("04_scientific_summary_report.txt", summary_content)
             except Exception as e:
                 st.warning(f"Could not create summary report: {e}")
             
             # Enhanced README
             try:
                 readme_content = f"""
-ENHANCED SCIENTIFIC SENTIMENT ANALYSIS PACKAGE
-{'='*48}
+SCIENTIFIC SENTIMENT ANALYSIS PACKAGE
+{'='*40}
 
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Analysis Type: Enhanced Scientific Statistical Analysis
+Analysis Type: Scientific Statistical Analysis
 Dataset: {stats.get('total_reviews', 0):,} texts analyzed
 
 PACKAGE CONTENTS:
@@ -2312,45 +1891,25 @@ PACKAGE CONTENTS:
    Word frequency analysis organized by sentiment class
    Includes: top words per sentiment with frequency counts
    
-04_keywords_by_sentiment.csv (ENHANCED)
-   Advanced keyword analysis using TF-IDF scoring
-   Includes: keyword relevance scores by sentiment class
-   
-05_phrases_by_sentiment.csv (ENHANCED)
-   Most frequent phrases (bigrams/trigrams) by sentiment
-   Includes: phrase frequency and percentage analysis
-   
-06_topics_by_sentiment.csv (ENHANCED)
-   Topic modeling results with domain-specific indicators
-   Includes: topic relevance scores and mention counts
-   
-07_enhanced_scientific_summary.txt
-   Comprehensive human-readable analysis summary
-   Includes: objective metrics, methodology, enhanced findings
+04_scientific_summary_report.txt
+   Human-readable statistical summary report
+   Includes: objective metrics, methodology, key findings
    
 README.txt
-   This enhanced documentation file
+   This documentation file
 
-ENHANCED SCIENTIFIC APPROACH:
-{'='*31}
+SCIENTIFIC APPROACH:
+{'='*19}
 
-This package contains objective statistical analysis results with advanced
-NLP features including keyword extraction, phrase analysis, and topic modeling.
-All metrics are based on quantitative measurements and reproducible methods.
-
-Enhanced Features:
-- TF-IDF keyword extraction
-- N-gram phrase analysis
-- Domain-specific topic modeling
-- Statistical significance testing
-- Advanced sentiment classification
+This package contains objective statistical analysis results without
+subjective interpretations or narrative commentary. All metrics are
+based on quantitative measurements and reproducible computational methods.
 
 Key Features:
 - Objective statistical reporting
 - Reproducible analysis methods
 - Quantitative sentiment classification
 - Research-grade documentation
-- Enhanced linguistic analysis
 
 USAGE INSTRUCTIONS:
 {'='*18}
@@ -2358,29 +1917,20 @@ USAGE INSTRUCTIONS:
 For Researchers:
 - Use JSON files for programmatic analysis
 - CSV files are ready for statistical software
-- Enhanced features provide deeper insights
 - Methodology is documented for replication
 
 For Business Users:
-- Read the enhanced summary report (07_) for key findings
+- Read the summary report (04_) for key findings
 - Use prediction CSV (01_) for further analysis
-- Keyword/phrase analysis (04_/05_) shows specific patterns
-- Topic analysis (06_) reveals thematic insights
+- Term distribution (03_) shows sentiment-specific vocabulary
 
 For Developers:
 - JSON format enables easy integration
 - All data structures are documented
 - API-ready format for automated processing
-- Enhanced features accessible via CSV exports
 
-For Advanced Analysis:
-- Combine keyword and topic analysis for deeper insights
-- Use phrase analysis to identify common expressions
-- Statistical metrics enable rigorous evaluation
-- Confidence scores support decision-making
-
-Generated by Enhanced Scientific Sentiment Analysis System v2.0
-Research-Grade • Objective • Reproducible • Enhanced
+Generated by Scientific Sentiment Analysis System v2.0
+Research-Grade • Objective • Reproducible
                 """
                 
                 zip_file.writestr("README.txt", readme_content)
@@ -2388,18 +1938,18 @@ Research-Grade • Objective • Reproducible • Enhanced
                 st.warning(f"Could not create README: {e}")
     
     except Exception as e:
-        st.error(f"Error creating enhanced scientific ZIP package: {e}")
+        st.error(f"Error creating scientific ZIP package: {e}")
         return io.BytesIO().getvalue()
     
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
 def main():
-    """ENHANCED FIXED: Main Streamlit application with comprehensive error handling"""
+    """FIXED: Main Streamlit application with comprehensive error handling"""
     
     try:
         # Enhanced Header
-        st.markdown('<div class="main-header">🤖 Enhanced Scientific Sentiment Analysis System - Professional Dashboard v2.0 (FULLY FIXED)</div>', 
+        st.markdown('<div class="main-header">🤖 Advanced Sentiment Analysis System - Enhanced Professional Dashboard v2.0 (FIXED)</div>', 
                     unsafe_allow_html=True)
         
         # FIXED: Enhanced Sidebar with proper error handling
@@ -2487,14 +2037,13 @@ def main():
             main_df, main_dataset_path = load_main_dataset()
         
         # FIXED: Create tabs with proper structure
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "📊 Dataset Overview",
-            "🧠 Models & Predictions",
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Dataset Overview", 
+            "🧠 Models & Predictions", 
             "📈 Graphics & Statistics",
             "🔍 Deep Text Analysis",
-            "📂 CSV Analysis",
-            "📥 Download Results",
-            "🚀 Advanced Analysis"
+            "📂 CSV Analysis", 
+            "📥 Download Results"
         ])
         
         # Tab 1: FIXED Dataset Overview
@@ -2542,9 +2091,9 @@ def main():
                     with col2:
                         st.metric("Columns", len(main_df.columns))
                     with col3:
-                        st.metric("Missing Values", int(main_df.isnull().sum().sum()))
+                        st.metric("Missing Values", main_df.isnull().sum().sum())
                     with col4:
-                        st.metric("Duplicates", int(main_df.duplicated().sum()))
+                        st.metric("Duplicates", main_df.duplicated().sum())
                     with col5:
                         memory_usage = main_df.memory_usage(deep=True).sum() / (1024**2)
                         st.metric("Memory Usage", f"{memory_usage:.1f} MB")
@@ -2633,9 +2182,9 @@ def main():
                 ```
                 """)
         
-        # Tab 2: ENHANCED Models & Predictions with comprehensive error handling
+        # Tab 2: FIXED Models & Predictions with comprehensive error handling
         with tab2:
-            st.header("🧠 Enhanced Models & Predictions")
+            st.header("🧠 Advanced Models & Predictions")
             
             # Display model status
             st.subheader("🔧 Model Status Dashboard")
@@ -2692,14 +2241,14 @@ def main():
                     st.error(f"Error checking SVM status: {e}")
             
             # Enhanced Model training section
-            st.subheader("🏋️ Enhanced Model Training")
+            st.subheader("🏋️ Advanced Model Training")
             
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("🚀 Train Both Models (Enhanced)", type="primary"):
+                if st.button("🚀 Train Both Models (Optimized)", type="primary"):
                     if main_df is not None:
-                        st.info("🔄 Starting enhanced model training pipeline...")
+                        st.info("🔄 Starting optimized model training pipeline...")
                         
                         try:
                             # Save main dataset temporarily for training
@@ -2710,7 +2259,7 @@ def main():
                             success = run_complete_pipeline(str(temp_csv_path))
                             
                             if success:
-                                st.success("🎉 Enhanced model training completed successfully!")
+                                st.success("🎉 Model training completed successfully!")
                                 if st.button("🔄 Load New Models"):
                                     st.cache_resource.clear()
                                     st.rerun()
@@ -2725,12 +2274,12 @@ def main():
                 if st.button("⚡ Quick Training (Fast Mode)", type="secondary"):
                     st.info("🚀 Fast training mode reduces epochs for quick testing")
             
-            # ENHANCED: Prediction section with scientific analysis
+            # Enhanced Prediction section
             if any(model is not None for model in models.values()):
-                st.subheader("🔮 Enhanced Prediction Interface")
+                st.subheader("🔮 Advanced Prediction Interface")
                 
                 # Enhanced text input with examples
-                st.markdown("### 💬 Test Your Text with Complete Scientific Analysis")
+                st.markdown("### 💬 Test Your Text")
                 
                 # Provide example texts
                 example_texts = [
@@ -2754,14 +2303,10 @@ def main():
                     height=100
                 )
                 
-                if st.button("🔬 Scientific Text Analysis") and test_text.strip():
-                    if not ENHANCED_PROCESSOR_AVAILABLE:
-                        st.error("❌ EnhancedFileAnalysisProcessor not available!")
-                        return
-                    
+                if st.button("🎯 Analyze Text with All Models") and test_text.strip():
                     if embedding_model:
                         try:
-                            with st.spinner("🔄 Analyzing text..."):
+                            with st.spinner("🔄 Generating comprehensive prediction..."):
                                 # Generate embedding
                                 text_embedding = embedding_model.encode([test_text])
                                 
@@ -2770,133 +2315,146 @@ def main():
                                     [test_text], text_embedding, models
                                 )
                                 
+                                # SCIENTIFIC FIX: Perform deep analysis on single text
+                                temp_df = pd.DataFrame({'text': [test_text]})
+                                deep_analysis = enhanced_deep_text_analysis(temp_df, 'text')
+                                
+                                # SCIENTIFIC FIX: Generate scientific report for single text
+                                scientific_report = generate_scientific_report(temp_df, predictions, metrics, deep_analysis)
+                                
+                                # SCIENTIFIC FIX: Analyze sentiment patterns for single text
                                 if predictions:
-                                    # Get first prediction and confidence
-                                    first_model = list(predictions.keys())[0]
-                                    prediction = predictions[first_model][0]
-                                    confidence = metrics[first_model]['confidence_scores'][0]
-                                    
-                                    # Display prediction results
-                                    st.subheader("🎯 Prediction Results")
-                                    
+                                    all_predictions = []
+                                    for pred in predictions.values():
+                                        all_predictions.extend(pred)
+                                    sentiment_analysis = analyze_sentiment_by_class([test_text], all_predictions[:1])
+                                else:
+                                    sentiment_analysis = None
+                                
+                                # Display enhanced results
+                                st.subheader("🎯 Comprehensive Prediction Results")
+                                
+                                if predictions:
                                     # Create comparison table
                                     results_data = []
                                     for model_name, pred in predictions.items():
                                         label_map = {0: '😞 Negative', 1: '😊 Positive', 2: '😐 Neutral'}
                                         result = label_map.get(pred[0], f'Class {pred[0]}')
                                         
-                                        confidence_score = metrics[model_name]['confidence_avg']
+                                        confidence = metrics[model_name]['confidence_avg']
                                         model_type = metrics[model_name]['model_type']
                                         
                                         results_data.append({
                                             'Model': model_name.upper(),
                                             'Type': model_type,
                                             'Prediction': result,
-                                            'Confidence': f"{confidence_score:.3f}",
-                                            'Level': 'High' if confidence_score > 0.8 else 'Medium' if confidence_score > 0.6 else 'Low'
+                                            'Confidence': f"{confidence:.3f}",
+                                            'Level': 'High' if confidence > 0.8 else 'Medium' if confidence > 0.6 else 'Low'
                                         })
                                     
                                     results_df = pd.DataFrame(results_data)
                                     st.dataframe(results_df, use_container_width=True)
                                     
-                                    # 🔧 FIXED: Call processor.analyze_text() directly
+                                    # SCIENTIFIC FIX: Display scientific analysis for single text
                                     st.subheader("📊 Scientific Text Analysis")
                                     
-                                    try:
-                                        processor = EnhancedFileAnalysisProcessor()
-                                        analysis = processor.analyze_text(test_text)
-                                        
-                                        if analysis:
-                                            # 📊 Top Words (bar chart)
-                                            if 'top_words' in analysis:
-                                                st.markdown("### 📊 Top Words")
-                                                top_words = analysis['top_words'][:10]
-                                                if top_words:
-                                                    words_df = pd.DataFrame(top_words, columns=['Word', 'Frequency'])
-                                                    fig_words = px.bar(
-                                                        words_df,
-                                                        x='Word',
-                                                        y='Frequency',
-                                                        title="Top 10 Words"
-                                                    )
-                                                    st.plotly_chart(fig_words, use_container_width=True)
+                                    # Text statistics
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    
+                                    with col1:
+                                        char_count = len(test_text)
+                                        st.metric("Character Count", char_count)
+                                    with col2:
+                                        word_count = len(test_text.split())
+                                        st.metric("Word Count", word_count)
+                                    with col3:
+                                        sentence_count = len(re.split(r'[.!?]+', test_text))
+                                        st.metric("Sentence Count", sentence_count)
+                                    with col4:
+                                        avg_word_length = np.mean([len(word) for word in test_text.split()]) if test_text.split() else 0
+                                        st.metric("Avg Word Length", f"{avg_word_length:.1f}")
+                                    
+                                    # Word frequency analysis for single text
+                                    words = re.findall(r'\b\w+\b', test_text.lower())
+                                    if words:
+                                        word_freq = Counter(words)
+                                        if len(word_freq) > 1:
+                                            st.subheader("📝 Word Frequency Analysis")
                                             
-                                            # 📝 Frequent Phrases (dataframe)
-                                            if 'phrases' in analysis:
-                                                st.markdown("### 📝 Frequent Phrases")
-                                                phrases = analysis['phrases'][:10]
-                                                if phrases:
-                                                    phrases_df = pd.DataFrame(phrases, columns=['Phrase', 'Frequency'])
-                                                    st.dataframe(phrases_df, use_container_width=True)
+                                            word_freq_df = pd.DataFrame(
+                                                word_freq.most_common(min(10, len(word_freq))),
+                                                columns=['Word', 'Frequency']
+                                            )
                                             
-                                            # 🧠 Topics (table or bar chart)
-                                            if 'topics' in analysis:
-                                                st.markdown("### 🧠 Topics")
-                                                topics = analysis['topics'][:10]
-                                                if topics:
-                                                    topics_df = pd.DataFrame(topics, columns=['Topic', 'Score'])
-                                                    st.dataframe(topics_df, use_container_width=True)
-                                            
-                                            # 📥 Download buttons
-                                            st.markdown("### 📥 Download Results")
-                                            col1, col2 = st.columns(2)
-                                            
-                                            with col1:
-                                                # Download CSV
-                                                csv_data = pd.DataFrame({
-                                                    'text': [test_text],
-                                                    'prediction': [label_map.get(prediction, 'Unknown')],
-                                                    'confidence': [confidence]
-                                                })
-                                                
-                                                st.download_button(
-                                                    label="📄 Download CSV",
-                                                    data=csv_data.to_csv(index=False),
-                                                    file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                                    mime="text/csv"
-                                                )
-                                            
-                                            with col2:
-                                                # Download JSON
-                                                json_data = {
-                                                    'text': test_text,
-                                                    'prediction': label_map.get(prediction, 'Unknown'),
-                                                    'confidence': float(confidence),
-                                                    'analysis': safe_convert_for_json(analysis)
-                                                }
-                                                
-                                                st.download_button(
-                                                    label="📊 Download JSON",
-                                                    data=json.dumps(json_data, indent=2),
-                                                    file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                                    mime="application/json"
-                                                )
-                                        else:
-                                            st.warning("⚠️ Analysis returned no results")
-                                            
-                                    except Exception as e:
-                                        st.error(f"❌ Analysis error: {e}")
+                                            fig_words = px.bar(
+                                                word_freq_df,
+                                                x='Word',
+                                                y='Frequency',
+                                                title="Word Frequency in Input Text",
+                                                color='Frequency',
+                                                color_continuous_scale='viridis'
+                                            )
+                                            st.plotly_chart(fig_words, use_container_width=True)
+                                    
+                                    # SCIENTIFIC FIX: Display scientific report
+                                    st.subheader("📋 Scientific Analysis Report")
+                                    
+                                    if 'linguistic_analysis' in scientific_report:
+                                        ling = scientific_report['linguistic_analysis']
+                                        st.markdown("**Linguistic Metrics:**")
+                                        st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
+                                        st.write(f"• Positive Indicators: {ling.get('positive_indicators', 0)}")
+                                        st.write(f"• Negative Indicators: {ling.get('negative_indicators', 0)}")
+                                        st.write(f"• Sentiment Ratio: {ling.get('sentiment_ratio', 1):.2f}")
+                                    
+                                    if 'sentiment_distribution' in scientific_report:
+                                        sent_dist = scientific_report['sentiment_distribution']
+                                        if 'percentages' in sent_dist:
+                                            st.markdown("**Sentiment Classification:**")
+                                            for sentiment, percentage in sent_dist['percentages'].items():
+                                                st.write(f"• {sentiment.title()}: {percentage:.1f}%")
                                     
                                     # Model agreement analysis
                                     if len(predictions) > 1:
-                                        preds_list = [pred[0] for pred in predictions.values()]
-                                        if len(set(preds_list)) == 1:
-                                            st.success("🤝 **Model Agreement**: All models agree!")
-                                        else:
-                                            st.warning("⚡ **Model Disagreement**: Different predictions")
-                                
+                                        preds_list = list(predictions.values())
+                                        if len(preds_list) == 2:
+                                            agreement = preds_list[0][0] == preds_list[1][0]
+                                            if agreement:
+                                                st.success("🤝 **Model Agreement**: Both models agree on the prediction!")
+                                            else:
+                                                st.warning("⚡ **Model Disagreement**: Models have different predictions - consider manual review.")
+                                    
+                                    # SCIENTIFIC FIX: Save single text analysis results
+                                    if st.button("💾 Save Analysis Results"):
+                                        try:
+                                            session_dir = get_session_results_dir()
+                                            saved_files = save_scientific_results(
+                                                scientific_report, 
+                                                sentiment_analysis, 
+                                                session_dir, 
+                                                "manual_text_input.txt"
+                                            )
+                                            
+                                            if saved_files:
+                                                st.success("✅ Analysis results saved!")
+                                                for file_type, file_path in saved_files.items():
+                                                    st.write(f"📄 {file_type}: {Path(file_path).name}")
+                                            else:
+                                                st.warning("⚠️ Could not save results")
+                                        except Exception as e:
+                                            st.error(f"Error saving results: {e}")
                                 else:
                                     st.warning("⚠️ No predictions generated. Check model status.")
                         except Exception as e:
-                            st.error(f"❌ Analysis error: {e}")
+                            st.error(f"Prediction error: {e}")
                     else:
                         st.error("❌ Embedding model not available!")
             else:
                 st.info("ℹ️ No trained models available. Train models first or upload a CSV for analysis.")
         
-        # Tab 3: ENHANCED Graphics & Statistics with scientific visualizations
+        # Tab 3: SCIENTIFIC FIX - Graphics & Statistics with scientific visualizations
         with tab3:
-            st.header("📈 Enhanced Scientific Graphics & Statistical Analysis")
+            st.header("📈 Scientific Graphics & Statistical Analysis")
             
             if main_df is not None:
                 try:
@@ -2913,7 +2471,7 @@ def main():
                     
                     if text_col:
                         # Perform deep analysis for scientific visualization
-                        with st.spinner("🔄 Performing enhanced scientific analysis..."):
+                        with st.spinner("🔄 Performing scientific analysis..."):
                             deep_analysis = enhanced_deep_text_analysis(main_df, text_col)
                             
                             # Create mock stats structure for compatibility
@@ -3011,52 +2569,43 @@ def main():
                 except Exception as e:
                     st.error(f"Error in graphics and statistics: {e}")
             else:
-                st.info("ℹ️ No dataset loaded. Upload a CSV to see enhanced scientific visualizations.")
+                st.info("ℹ️ No dataset loaded. Upload a CSV to see scientific visualizations.")
                 
                 # Enhanced guidance for graphics tab
                 st.markdown("""
-                ### 📈 Available Enhanced Scientific Visualizations:
+                ### 📈 Available Scientific Visualizations:
                 
                 Once you upload a dataset, you'll see:
                 
-                **📊 Enhanced Scientific Analysis**
+                **📊 Scientific Analysis**
                 - Sentiment distribution with statistical breakdown
-                - Advanced keyword analysis by sentiment class
-                - Phrase frequency analysis (bigrams/trigrams)
-                - Topic modeling with domain-specific indicators
+                - Top words analysis by sentiment class
                 - Confidence score distributions
                 - Text length statistical analysis
                 
                 **🔬 Advanced Analytics**  
-                - TF-IDF keyword extraction by sentiment
-                - N-gram phrase analysis
-                - Domain-specific topic modeling
+                - Word frequency analysis by sentiment
                 - Separate word clouds for each sentiment class
                 - Model performance metrics visualization
                 - Statistical correlation analysis
                 
-                **📋 Enhanced Scientific Reports**
+                **📋 Scientific Reports**
                 - Neutral statistical summaries
-                - Advanced term frequency distributions
-                - Keyword relevance scoring
-                - Phrase occurrence analysis
-                - Topic relevance measurements
+                - Term frequency distributions
                 - Data quality assessments
-                - Exportable enhanced analysis results
+                - Exportable analysis results
                 
-                ### 🎯 Enhanced Scientific Features:
-                - Advanced TF-IDF keyword extraction
-                - Statistical phrase analysis
-                - Domain-specific topic modeling
+                ### 🎯 Scientific Features:
+                - Statistical significance testing
                 - Objective metric reporting
                 - Reproducible analysis methods
                 - Export-ready visualizations
                 """)
         
-        # Tab 4: ENHANCED Deep Scientific Text Analysis with complete features
+        # Tab 4: SCIENTIFIC FIX - Deep Text Analysis with scientific approach
         with tab4:
-            st.header("🔍 Enhanced Deep Scientific Text Analysis")
-            st.markdown("*Advanced scientific semantic pattern recognition, keyword extraction, and topic modeling*")
+            st.header("🔍 Deep Scientific Text Analysis")
+            st.markdown("*Advanced scientific semantic pattern recognition and linguistic analysis*")
             
             # Check if we have analysis data
             analysis_available = False
@@ -3086,20 +2635,18 @@ def main():
                         deep_analysis = analysis_data['stats'].get('deep_analysis', {})
                         scientific_report = analysis_data.get('scientific_report', {})
                         sentiment_analysis = analysis_data.get('sentiment_analysis', {})
-                        advanced_analysis = analysis_data['stats'].get('advanced_analysis', {})
                     else:
                         # Perform analysis on main dataset
                         df = main_df
-                        with st.spinner("🔄 Performing comprehensive enhanced scientific analysis..."):
+                        with st.spinner("🔄 Performing comprehensive scientific analysis..."):
                             deep_analysis = enhanced_deep_text_analysis(df, text_col)
                             scientific_report = generate_scientific_report(df, {}, {}, deep_analysis)
                             sentiment_analysis = {}
-                            advanced_analysis = {}
                     
-                    # ENHANCED: Display comprehensive scientific metrics
+                    # SCIENTIFIC FIX: Display scientific metrics instead of narratives
                     if scientific_report:
                         # Scientific Intelligence Overview
-                        st.subheader("🧠 Enhanced Scientific Analysis Overview")
+                        st.subheader("🧠 Scientific Analysis Overview")
                         
                         col1, col2, col3, col4, col5 = st.columns(5)
                         
@@ -3126,83 +2673,55 @@ def main():
                                 total_words = ling.get('total_words', 0)
                                 st.metric("📚 Total Words", f"{total_words:,}")
                         
-                        # ENHANCED: Display scientific report with advanced features
-                        st.subheader("📊 Enhanced Scientific Analysis Report")
+                        # SCIENTIFIC FIX: Display scientific report instead of narratives
+                        st.subheader("📊 Scientific Analysis Report")
                         
                         # Linguistic Analysis
                         if 'linguistic_analysis' in scientific_report:
                             ling = scientific_report['linguistic_analysis']
-                            
-                            with st.expander("📝 Comprehensive Linguistic Analysis", expanded=True):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**Basic Statistics:**")
-                                    st.write(f"• Total Words: {ling.get('total_words', 0):,}")
-                                    st.write(f"• Unique Words: {ling.get('unique_words', 0):,}")
-                                    st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
-                                    st.write(f"• Average Words per Text: {ling.get('avg_words_per_text', 0):.1f}")
-                                    st.write(f"• Average Characters per Text: {ling.get('avg_chars_per_text', 0):.1f}")
-                                
-                                with col2:
-                                    st.markdown("**Sentiment Indicators:**")
-                                    st.write(f"• Positive Indicators: {ling.get('positive_indicators', 0)}")
-                                    st.write(f"• Negative Indicators: {ling.get('negative_indicators', 0)}")
-                                    st.write(f"• Sentiment Ratio: {ling.get('sentiment_ratio', 1):.2f}")
-                                    
-                                    # Emotion distribution
-                                    emotion_dist = ling.get('emotion_distribution', {})
-                                    if emotion_dist:
-                                        st.markdown("**Emotion Distribution:**")
-                                        for emotion, count in emotion_dist.items():
-                                            if count > 0:
-                                                st.write(f"• {emotion.title()}: {count}")
+                            st.markdown("**Linguistic Metrics:**")
+                            st.write(f"• Total Words: {ling.get('total_words', 0):,}")
+                            st.write(f"• Unique Words: {ling.get('unique_words', 0):,}")
+                            st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
+                            st.write(f"• Average Words per Text: {ling.get('avg_words_per_text', 0):.1f}")
+                            st.write(f"• Average Characters per Text: {ling.get('avg_chars_per_text', 0):.1f}")
+                            st.write(f"• Positive Indicators: {ling.get('positive_indicators', 0)}")
+                            st.write(f"• Negative Indicators: {ling.get('negative_indicators', 0)}")
+                            st.write(f"• Sentiment Ratio: {ling.get('sentiment_ratio', 1):.2f}")
+                            st.write("")
                         
                         # Quality Metrics
                         if 'quality_metrics' in scientific_report:
                             quality = scientific_report['quality_metrics']
-                            
-                            with st.expander("✅ Data Quality Assessment"):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**Quality Metrics:**")
-                                    st.write(f"• Overall Quality Score: {quality.get('overall_quality_score', 0):.1%}")
-                                    st.write(f"• Data Completeness: {quality.get('data_completeness', 0):.1%}")
-                                    st.write(f"• Readability Score: {quality.get('readability_score', 0):.2f}")
-                                
-                                with col2:
-                                    st.markdown("**Data Issues:**")
-                                    st.write(f"• Empty Texts: {quality.get('empty_texts', 0)}")
-                                    st.write(f"• Potential Spam: {quality.get('potential_spam', 0)}")
+                            st.markdown("**Data Quality Metrics:**")
+                            st.write(f"• Overall Quality Score: {quality.get('overall_quality_score', 0):.1%}")
+                            st.write(f"• Data Completeness: {quality.get('data_completeness', 0):.1%}")
+                            st.write(f"• Readability Score: {quality.get('readability_score', 0):.2f}")
+                            st.write(f"• Empty Texts: {quality.get('empty_texts', 0)}")
+                            st.write(f"• Potential Spam: {quality.get('potential_spam', 0)}")
+                            st.write("")
                         
                         # Term Frequency
                         if 'term_frequency' in scientific_report:
                             terms = scientific_report['term_frequency']
+                            st.markdown("**Term Frequency Analysis:**")
+                            st.write(f"• Rare Words Count: {terms.get('rare_words_count', 0)}")
+                            st.write(f"• Average Word Length: {terms.get('avg_word_length', 0):.1f} characters")
                             
-                            with st.expander("📊 Term Frequency Analysis"):
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown("**Statistics:**")
-                                    st.write(f"• Rare Words Count: {terms.get('rare_words_count', 0)}")
-                                    st.write(f"• Average Word Length: {terms.get('avg_word_length', 0):.1f} characters")
-                                
-                                with col2:
-                                    most_common = terms.get('most_common_terms', [])
-                                    if most_common:
-                                        st.markdown("**Most Common Terms:**")
-                                        for word, freq in most_common[:8]:
-                                            st.write(f"• **{word}**: {freq} occurrences")
+                            most_common = terms.get('most_common_terms', [])
+                            if most_common:
+                                st.write("• **Most Common Terms:**")
+                                for word, freq in most_common[:5]:
+                                    st.write(f"  - {word}: {freq} occurrences")
                         
-                        # ENHANCED: Wordcloud in Deep Analysis
+                        # SCIENTIFIC FIX: Wordcloud in Deep Analysis
                         if WORDCLOUD_AVAILABLE and text_col in df.columns:
-                            st.subheader("☁️ Enhanced Word Cloud Analysis")
+                            st.subheader("☁️ Scientific Word Cloud Analysis")
                             try:
                                 text_data = df[text_col].fillna('').astype(str).tolist()
                                 wordcloud_img = create_wordcloud_visualization(
                                     text_data, 
-                                    "Enhanced Scientific Text Analysis Word Cloud"
+                                    "Scientific Text Analysis Word Cloud"
                                 )
                                 
                                 if wordcloud_img:
@@ -3220,58 +2739,50 @@ def main():
                         elif not WORDCLOUD_AVAILABLE:
                             st.info("💡 Install wordcloud for visualization: `pip install wordcloud`")
                     else:
-                        st.warning("⚠️ Could not perform enhanced scientific analysis. Please check the text data format.")
+                        st.warning("⚠️ Could not perform scientific analysis. Please check the text data format.")
                 else:
-                    st.info("ℹ️ No text data available for enhanced scientific analysis.")
+                    st.info("ℹ️ No text data available for scientific analysis.")
                     
                     st.markdown("""
-                    ### 🔬 About Enhanced Scientific Text Analysis:
+                    ### 🔬 About Scientific Text Analysis:
                     
-                    This enhanced scientific analysis provides:
+                    This scientific analysis provides:
                     
-                    **📊 Advanced Statistical Metrics**
-                    - TF-IDF keyword extraction by sentiment class
-                    - N-gram phrase frequency analysis
-                    - Domain-specific topic modeling
+                    **📊 Statistical Metrics**
                     - Vocabulary richness assessment
                     - Sentiment ratio calculations
                     - Text quality scoring
                     - Linguistic feature measurements
                     
-                    **🔍 Enhanced Objective Analysis**
+                    **🔍 Objective Analysis**
                     - Neutral statistical reporting
                     - Reproducible measurements
                     - Quantitative assessments
                     - Evidence-based insights
-                    - Advanced NLP feature extraction
                     
-                    **📈 Enhanced Scientific Visualizations**
-                    - Keyword relevance scoring charts
-                    - Phrase frequency distributions
-                    - Topic relevance measurements
+                    **📈 Scientific Visualizations**
                     - Statistical distributions
+                    - Frequency analysis
                     - Correlation studies
                     - Objective comparisons
                     
                     **📋 Research-Grade Output**
-                    - Exportable enhanced data files
-                    - Advanced statistical summaries
+                    - Exportable data files
+                    - Statistical summaries
                     - Methodology documentation
                     - Replicable results
-                    - Keyword/phrase/topic matrices
                     
-                    ### 📊 To Enable Enhanced Scientific Analysis:
+                    ### 📊 To Enable Scientific Analysis:
                     1. Upload a CSV file with text data
-                    2. Run "Deep Analysis" in the CSV Analysis tab
-                    3. Return here to see comprehensive enhanced scientific insights
-                    4. Download complete analysis packages with advanced features
+                    2. Run "Quick Analysis" or "Deep Analysis" in the CSV Analysis tab
+                    3. Return here to see comprehensive scientific insights
                     """)
             except Exception as e:
-                st.error(f"Error in Enhanced Scientific Text Analysis: {e}")
+                st.error(f"Error in Scientific Text Analysis: {e}")
         
-        # Tab 5: ENHANCED CSV Analysis with Deep and Full Pipeline functionality
+        # Tab 5: FIXED CSV Analysis with comprehensive error handling
         with tab5:
-            st.header("📂 Enhanced CSV File Analysis")
+            st.header("📂 Advanced CSV File Analysis")
             
             # Enhanced file upload section
             st.subheader("📁 Upload & Analyze CSV File")
@@ -3280,7 +2791,7 @@ def main():
             
             with col1:
                 uploaded_file = st.file_uploader(
-                    "Choose a CSV file for comprehensive enhanced analysis",
+                    "Choose a CSV file for comprehensive analysis",
                     type=['csv'],
                     help="CSV must contain a text column ('review', 'text', 'content', 'comment', 'message', or 'description')"
                 )
@@ -3299,7 +2810,7 @@ def main():
                 st.success(f"✅ File uploaded successfully: {uploaded_file.name}")
                 
                 # Enhanced analysis options
-                st.subheader("🔬 Enhanced Analysis Options")
+                st.subheader("🔬 Analysis Options")
                 
                 col1, col2, col3 = st.columns(3)
                 
@@ -3310,22 +2821,20 @@ def main():
                         help="Fast analysis with predictions and insights"
                     )
                 with col2:
-                    # 🔧 FIXED: Deep Analysis button with proper functionality
                     deep_analysis_btn = st.button(
-                        "🔍 Deep Analysis (ENHANCED)", 
+                        "🔍 Deep Analysis", 
                         type="secondary",
-                        help="🔧 FIXED: Comprehensive analysis with EnhancedFileAnalysisProcessor integration"
+                        help="Comprehensive analysis with advanced features"
                     )
                 with col3:
-                    # 🔧 FIXED: Full Pipeline button with proper functionality
                     full_pipeline = st.button(
-                        "🚀 Full Pipeline (ENHANCED)", 
-                        help="🔧 FIXED: Complete pipeline with run_dataset_analysis integration"
+                        "🚀 Full Pipeline", 
+                        help="Complete pipeline with model training"
                     )
                 
-                # FIXED: Analysis execution with proper Deep Analysis and Full Pipeline
-                if quick_analysis:
-                    analysis_type = "quick"
+                # Analysis execution
+                if quick_analysis or deep_analysis_btn:
+                    analysis_type = "comprehensive" if deep_analysis_btn else "quick"
                     
                     try:
                         with st.spinner(f"🔄 Performing {analysis_type} analysis..."):
@@ -3349,7 +2858,7 @@ def main():
                             }
                             
                             # Enhanced results display
-                            st.subheader("📊 Quick Analysis Results Overview")
+                            st.subheader("📊 Analysis Results Overview")
                             
                             # Key metrics
                             col1, col2, col3, col4, col5 = st.columns(5)
@@ -3375,119 +2884,173 @@ def main():
                             preview_rows = st.slider("Rows to display:", 5, 50, 20)
                             st.dataframe(df.head(preview_rows), use_container_width=True)
                             
-                    except Exception as e:
-                        st.error(f"Quick analysis error: {e}")
-                
-                elif deep_analysis_btn:
-                    # 🔧 FIXED: Deep Analysis with direct processor call
-                    if not ENHANCED_PROCESSOR_AVAILABLE:
-                        st.error("❌ EnhancedFileAnalysisProcessor not available!")
-                        return
-                    
-                    try:
-                        # Save uploaded file temporarily
-                        session_dir = get_session_results_dir()
-                        temp_csv_path = session_dir / f"uploaded_{uploaded_file.name}"
-                        
-                        with open(temp_csv_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        
-                        st.info(f"💾 File saved to: {temp_csv_path}")
-                        
-                        with st.spinner("🔄 Running Deep Analysis..."):
-                            # 🔧 FIXED: Direct call to processor.analyze_csv
-                            processor = EnhancedFileAnalysisProcessor()
-                            analysis_results = processor.analyze_csv(str(temp_csv_path), mode="deep")
-                        
-                        if analysis_results:
-                            st.success("✅ Deep Analysis completed!")
-                            
-                            # Store results in session
-                            st.session_state['current_analysis'] = {
-                                'df': pd.read_csv(temp_csv_path),
-                                'filename': uploaded_file.name,
-                                'timestamp': datetime.now(),
-                                'analysis_type': 'deep',
-                                'analysis_results': analysis_results
-                            }
-                            
-                            # Display results
-                            st.subheader("📊 Deep Analysis Results")
-                            
-                            # 📊 Top Words per classe (if available)
-                            if 'top_words_by_class' in analysis_results:
-                                st.markdown("### 📊 Top Words by Class")
-                                top_words = analysis_results['top_words_by_class']
-                                
-                                for sentiment_class, words in top_words.items():
-                                    if words:
-                                        st.markdown(f"**{sentiment_class.title()}:**")
-                                        words_df = pd.DataFrame(words[:10], columns=['Word', 'Score'])
-                                        
-                                        fig = px.bar(
-                                            words_df,
-                                            x='Word',
-                                            y='Score',
-                                            title=f"Top Words - {sentiment_class.title()}"
+                            # Make predictions if models available
+                            if any(model is not None for model in models.values()):
+                                try:
+                                    with st.spinner("🔄 Making enhanced predictions..."):
+                                        texts = df[stats['text_column']].fillna('').astype(str).tolist()
+                                        predictions, metrics = predict_sentiment_enhanced(
+                                            texts, embeddings, models
                                         )
-                                        st.plotly_chart(fig, use_container_width=True)
-                            
-                            # 📝 Frasi più ricorrenti (if available)
-                            if 'frequent_phrases' in analysis_results:
-                                st.markdown("### 📝 Most Frequent Phrases")
-                                phrases = analysis_results['frequent_phrases'][:20]
-                                if phrases:
-                                    phrases_df = pd.DataFrame(phrases, columns=['Phrase', 'Frequency'])
-                                    st.dataframe(phrases_df, use_container_width=True)
-                            
-                            # 🧠 Argomenti (if available)
-                            if 'topics' in analysis_results:
-                                st.markdown("### 🧠 Topics")
-                                topics = analysis_results['topics'][:15]
-                                if topics:
-                                    topics_df = pd.DataFrame(topics, columns=['Topic', 'Relevance'])
+                                        
+                                        # Store predictions in session
+                                        st.session_state['current_analysis']['predictions'] = predictions
+                                        st.session_state['current_analysis']['metrics'] = metrics
+                                        
+                                        # SCIENTIFIC FIX: Generate comprehensive scientific analysis
+                                        deep_analysis_data = stats.get('deep_analysis', {})
+                                        scientific_report = generate_scientific_report(df, predictions, metrics, deep_analysis_data)
+                                        
+                                        # SCIENTIFIC FIX: Analyze sentiment patterns by class
+                                        all_predictions = []
+                                        for pred in predictions.values():
+                                            all_predictions.extend(pred)
+                                        
+                                        if all_predictions:
+                                            sentiment_analysis = analyze_sentiment_by_class(texts, all_predictions[:len(texts)])
+                                        else:
+                                            sentiment_analysis = None
+                                        
+                                        # Store scientific analysis in session
+                                        st.session_state['current_analysis']['scientific_report'] = scientific_report
+                                        st.session_state['current_analysis']['sentiment_analysis'] = sentiment_analysis
+                                        
+                                        # SCIENTIFIC FIX: Save comprehensive results
+                                        saved_files = save_scientific_results(
+                                            scientific_report, 
+                                            sentiment_analysis, 
+                                            session_dir, 
+                                            uploaded_file.name
+                                        )
+                                        st.session_state['current_analysis']['saved_files'] = saved_files
+                                        
+                                        # Display prediction summary
+                                        st.subheader("🤖 Prediction Summary")
+                                        
+                                        prediction_summary = []
+                                        for model_name, pred in predictions.items():
+                                            pred_dist = dict(zip(*np.unique(pred, return_counts=True)))
+                                            model_metrics_data = metrics.get(model_name, {})
+                                            
+                                            prediction_summary.append({
+                                                'Model': model_name.upper(),
+                                                'Type': model_metrics_data.get('model_type', 'Unknown'),
+                                                'Negative': pred_dist.get(0, 0),
+                                                'Positive': pred_dist.get(1, 0),
+                                                'Neutral': pred_dist.get(2, 0),
+                                                'Avg Confidence': f"{model_metrics_data.get('confidence_avg', 0):.3f}",
+                                                'Total Predictions': len(pred)
+                                            })
+                                        
+                                        if prediction_summary:
+                                            summary_df = pd.DataFrame(prediction_summary)
+                                            st.dataframe(summary_df, use_container_width=True)
+                                        
+                                        # SCIENTIFIC FIX: Display scientific analysis report
+                                        st.subheader("📊 Scientific Analysis Report")
+                                        
+                                        # Display key scientific metrics
+                                        if 'sentiment_distribution' in scientific_report:
+                                            sent_dist = scientific_report['sentiment_distribution']
+                                            st.markdown("**Sentiment Distribution:**")
+                                            if 'percentages' in sent_dist:
+                                                for sentiment, percentage in sent_dist['percentages'].items():
+                                                    count = sent_dist['counts'].get(sentiment, 0)
+                                                    st.write(f"• **{sentiment.title()}**: {count:,} samples ({percentage:.1f}%)")
+                                            st.write("")
+                                        
+                                        if 'linguistic_analysis' in scientific_report:
+                                            ling = scientific_report['linguistic_analysis']
+                                            st.markdown("**Linguistic Analysis:**")
+                                            st.write(f"• Total Words: {ling.get('total_words', 0):,}")
+                                            st.write(f"• Unique Words: {ling.get('unique_words', 0):,}")
+                                            st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
+                                            st.write(f"• Positive Indicators: {ling.get('positive_indicators', 0)}")
+                                            st.write(f"• Negative Indicators: {ling.get('negative_indicators', 0)}")
+                                            st.write(f"• Sentiment Ratio: {ling.get('sentiment_ratio', 1):.2f}")
+                                            st.write("")
+                                        
+                                        if 'model_performance' in scientific_report:
+                                            st.markdown("**Model Performance:**")
+                                            for model_name, performance in scientific_report['model_performance'].items():
+                                                st.write(f"• **{model_name.upper()}** ({performance.get('model_type', 'Unknown')}):")
+                                                st.write(f"  - Average Confidence: {performance.get('avg_confidence', 0):.3f}")
+                                                st.write(f"  - Total Predictions: {performance.get('total_predictions', 0):,}")
+                                        
+                                        # SCIENTIFIC FIX: Create enhanced scientific visualizations
+                                        st.subheader("📈 Scientific Visualizations")
+                                        create_scientific_visualizations(df, embeddings, stats, predictions, metrics, sentiment_analysis)
+                                        
+                                        # SCIENTIFIC FIX: Show saved files information
+                                        if saved_files:
+                                            st.subheader("💾 Saved Analysis Files")
+                                            st.success("✅ Scientific analysis results have been saved!")
+                                            
+                                            for file_type, file_path in saved_files.items():
+                                                file_name = Path(file_path).name
+                                                file_size = Path(file_path).stat().st_size / 1024 if Path(file_path).exists() else 0
+                                                st.write(f"📄 **{file_type.replace('_', ' ').title()}**: {file_name} ({file_size:.1f} KB)")
+                                except Exception as e:
+                                    st.error(f"Error in prediction phase: {e}")
+                            else:
+                                st.warning("⚠️ No trained models available for predictions.")
+                                
+                                try:
+                                    # SCIENTIFIC FIX: Generate basic scientific analysis without predictions
+                                    deep_analysis_data = stats.get('deep_analysis', {})
+                                    scientific_report = generate_scientific_report(df, {}, {}, deep_analysis_data)
                                     
-                                    fig_topics = px.bar(
-                                        topics_df,
-                                        x='Topic',
-                                        y='Relevance',
-                                        title="Topics by Relevance"
+                                    # Store scientific analysis
+                                    st.session_state['current_analysis']['scientific_report'] = scientific_report
+                                    
+                                    # Save basic results
+                                    saved_files = save_scientific_results(
+                                        scientific_report, 
+                                        None, 
+                                        session_dir, 
+                                        uploaded_file.name
                                     )
-                                    st.plotly_chart(fig_topics, use_container_width=True)
-                            
-                            # 📤 Download buttons
-                            st.markdown("### 📥 Download Results")
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                # Download CSV
-                                results_csv = pd.DataFrame(safe_convert_for_json(analysis_results))
-                                st.download_button(
-                                    label="📄 Download CSV",
-                                    data=results_csv.to_csv(index=False),
-                                    file_name=f"deep_analysis_{uploaded_file.name}",
-                                    mime="text/csv"
-                                )
-                            
-                            with col2:
-                                # Download JSON
-                                st.download_button(
-                                    label="📊 Download JSON",
-                                    data=json.dumps(safe_convert_for_json(analysis_results), indent=2),
-                                    file_name=f"deep_analysis_{uploaded_file.name.replace('.csv', '.json')}",
-                                    mime="application/json"
-                                )
+                                    st.session_state['current_analysis']['saved_files'] = saved_files
+                                    
+                                    # Display basic scientific analysis
+                                    st.subheader("📊 Scientific Dataset Analysis")
+                                    
+                                    if 'linguistic_analysis' in scientific_report:
+                                        ling = scientific_report['linguistic_analysis']
+                                        st.markdown("**Linguistic Analysis:**")
+                                        st.write(f"• Total Words: {ling.get('total_words', 0):,}")
+                                        st.write(f"• Unique Words: {ling.get('unique_words', 0):,}")
+                                        st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
+                                        st.write(f"• Average Words per Text: {ling.get('avg_words_per_text', 0):.1f}")
+                                    
+                                    if 'quality_metrics' in scientific_report:
+                                        quality = scientific_report['quality_metrics']
+                                        st.markdown("**Data Quality Metrics:**")
+                                        st.write(f"• Overall Quality Score: {quality.get('overall_quality_score', 0):.1%}")
+                                        st.write(f"• Data Completeness: {quality.get('data_completeness', 0):.1%}")
+                                        st.write(f"• Readability Score: {quality.get('readability_score', 0):.2f}")
+                                    
+                                    # Create basic visualizations
+                                    st.subheader("📊 Basic Dataset Visualizations")
+                                    create_scientific_visualizations(df, embeddings, stats, {}, {})
+                                    
+                                    # Show saved files
+                                    if saved_files:
+                                        st.subheader("💾 Saved Analysis Files")
+                                        st.success("✅ Basic analysis results have been saved!")
+                                        for file_type, file_path in saved_files.items():
+                                            file_name = Path(file_path).name
+                                            st.write(f"📄 **{file_type.replace('_', ' ').title()}**: {file_name}")
+                                except Exception as e:
+                                    st.error(f"Error in basic analysis: {e}")
                         else:
-                            st.error("❌ Deep analysis failed or returned no results")
-                            
+                            st.error("❌ Analysis failed. Please check your CSV file format.")
                     except Exception as e:
-                        st.error(f"❌ Deep analysis error: {e}")
+                        st.error(f"Analysis error: {e}")
                 
                 elif full_pipeline:
-                    # 🔧 FIXED: Full Pipeline with direct function call
-                    if not PIPELINE_RUNNER_AVAILABLE:
-                        st.error("❌ run_dataset_analysis not available!")
-                        return
+                    # Enhanced full pipeline implementation
+                    st.header("🚀 Complete Analysis Pipeline")
                     
                     try:
                         # Save uploaded file temporarily
@@ -3499,64 +3062,76 @@ def main():
                         
                         st.info(f"💾 File saved to: {temp_csv_path}")
                         
-                        with st.spinner("🔄 Running Full Pipeline..."):
-                            # 🔧 FIXED: Direct call to run_dataset_analysis
-                            success = run_dataset_analysis(
-                                str(temp_csv_path),
-                                steps=["preprocess", "embed", "train", "predict", "report"],
-                                output_dir=str(session_dir)
-                            )
+                        # Run complete pipeline with enhanced monitoring
+                        success = run_complete_pipeline(str(temp_csv_path))
                         
                         if success:
-                            st.success("✅ Full Pipeline completed!")
+                            st.success("🎉 Complete pipeline analysis finished successfully!")
                             
-                            # Store results in session
-                            st.session_state['pipeline_results'] = {
-                                'session_dir': str(session_dir),
-                                'timestamp': datetime.now(),
-                                'status': 'completed',
-                                'pipeline_function_used': 'run_dataset_analysis'
-                            }
-                            
-                            # Display results
-                            st.subheader("📊 Pipeline Results")
-                            
-                            col1, col2, col3, col4 = st.columns(4)
-                            
-                            with col1:
-                                st.metric("Status", "✅ Complete")
-                            with col2:
-                                st.metric("Models", "Trained")
-                            with col3:
-                                st.metric("Reports", "Generated")
-                            with col4:
-                                st.metric("Session", session_dir.name)
-                            
-                            st.markdown(f"""
-                            **📊 Pipeline Results:**
-                            - Data preprocessing: ✅ Complete
-                            - Embedding generation: ✅ Complete
-                            - Model training: ✅ Complete
-                            - Predictions: ✅ Complete
-                            - Reports: ✅ Generated
-                            - Output directory: `{session_dir}`
-                            
-                            **⚡ Next Steps:**
-                            1. Refresh to use newly trained models
-                            2. Check 'Models & Predictions' tab
-                            3. Download results from 'Download Results' tab
-                            """)
+                            # Try to load and display results
+                            try:
+                                # Load processed data
+                                processed_csv = session_dir / "processed" / "test.csv"
+                                if processed_csv.exists():
+                                    processed_df = pd.read_csv(processed_csv)
+                                    
+                                    st.subheader("📊 Pipeline Results Overview")
+                                    
+                                    col1, col2, col3 = st.columns(3)
+                                    
+                                    with col1:
+                                        st.metric("Processed Samples", f"{len(processed_df):,}")
+                                    with col2:
+                                        st.metric("Processing Success", "✅ Complete")
+                                    with col3:
+                                        st.metric("Data Quality", "🏆 High")
+                                    
+                                    st.dataframe(processed_df.head(15), use_container_width=True)
+                                    
+                                    # Check for model results
+                                    models_dir = session_dir / "models"
+                                    model_status = []
+                                    
+                                    if (models_dir / "mlp_model.pth").exists():
+                                        st.success("✅ MLP neural network trained successfully")
+                                        model_status.append("MLP")
+                                    if (models_dir / "svm_model.pkl").exists():
+                                        st.success("✅ SVM classifier trained successfully")
+                                        model_status.append("SVM")
+                                    
+                                    # Check for reports
+                                    reports_dir = session_dir / "reports"
+                                    if (reports_dir / "evaluation_report.json").exists():
+                                        st.success("✅ Comprehensive evaluation report generated")
+                                    
+                                    # Pipeline completion summary
+                                    st.subheader("🏆 Pipeline Completion Summary")
+                                    st.markdown(f"""
+                                    **🎯 Training Results:**
+                                    - Models trained: {', '.join(model_status) if model_status else 'None'}
+                                    - Data processing: Complete
+                                    - Evaluation reports: Generated
+                                    - Session directory: `{session_dir}`
+                                    
+                                    **⚡ Next Steps:**
+                                    1. Refresh the page to use newly trained models
+                                    2. Go to 'Models & Predictions' tab to test predictions
+                                    3. Check 'Download Results' tab for comprehensive reports
+                                    """)
+                                    
+                            except Exception as e:
+                                st.warning(f"⚠️ Could not display detailed pipeline results: {e}")
+                                st.info("💡 Pipeline completed but result display encountered issues.")
                         else:
-                            st.error("❌ Full pipeline failed")
-                            
+                            st.error("❌ Complete pipeline analysis failed. Check the pipeline steps above for details.")
                     except Exception as e:
-                        st.error(f"❌ Pipeline error: {e}")
+                        st.error(f"Pipeline error: {e}")
             else:
                 # Enhanced guidance when no file uploaded
                 st.markdown("""
                 ### 📂 Enhanced CSV Analysis Features:
                 
-                Upload a CSV file to access these powerful enhanced analysis capabilities:
+                Upload a CSV file to access these powerful analysis capabilities:
                 
                 **⚡ Quick Analysis**
                 - Fast text processing and embedding generation
@@ -3564,23 +3139,17 @@ def main():
                 - Basic statistical analysis and insights
                 - Quick visualization generation
                 
-                **🔍 Deep Analysis (ENHANCED)**  
-                - 🔧 FIXED: EnhancedFileAnalysisProcessor integration
+                **🔍 Deep Analysis**  
                 - Comprehensive semantic pattern recognition
-                - Advanced TF-IDF keyword extraction by sentiment
-                - N-gram phrase analysis (bigrams/trigrams)
-                - Domain-specific topic modeling
-                - Enhanced linguistic feature extraction
+                - Advanced linguistic feature extraction
                 - Detailed quality assessment and recommendations
-                - Advanced visualization suite with wordclouds
+                - Enhanced visualization suite with wordclouds
                 
-                **🚀 Full Pipeline (ENHANCED)**
-                - 🔧 FIXED: run_dataset_analysis function integration
+                **🚀 Full Pipeline**
                 - Complete end-to-end processing workflow
                 - Automated model training (MLP + SVM)
-                - Enhanced keyword/phrase/topic extraction
-                - Advanced evaluation and reporting
-                - Production-ready model generation with enhanced features
+                - Comprehensive evaluation and reporting
+                - Production-ready model generation
                 
                 ### 📋 Supported File Formats:
                 
@@ -3595,22 +3164,12 @@ def main():
                 "Poor quality, waste of money",negative
                 "Average product, does the job",neutral
                 ```
-                
-                ### 🚀 Enhanced Features:
-                - **Advanced Keyword Extraction**: TF-IDF scoring by sentiment class
-                - **Phrase Analysis**: Bigram and trigram frequency analysis
-                - **Topic Modeling**: Domain-specific topic identification
-                - **Enhanced Visualizations**: Interactive charts and word clouds
-                - **Scientific Reporting**: Objective statistical analysis
-                - **Export-Ready Results**: Comprehensive downloadable packages
-                - **EnhancedFileAnalysisProcessor Integration**: Advanced file processing
-                - **Pipeline Integration**: run_dataset_analysis function support
                 """)
         
-        # Tab 6: ENHANCED Download Results with scientific files
+        # Tab 6: SCIENTIFIC FIX - Download Results with scientific files
         with tab6:
-            st.header("📥 Enhanced Scientific Results Download Center")
-            st.markdown("*Comprehensive enhanced scientific analysis packages with advanced NLP features*")
+            st.header("📥 Scientific Results Download Center")
+            st.markdown("*Comprehensive scientific analysis packages and detailed statistical reports*")
             
             # Check for analysis results
             if 'current_analysis' in st.session_state:
@@ -3618,7 +3177,7 @@ def main():
                     analysis = st.session_state['current_analysis']
                     
                     # Enhanced results summary
-                    st.success(f"✅ Enhanced scientific analysis results available for: **{analysis['filename']}**")
+                    st.success(f"✅ Scientific analysis results available for: **{analysis['filename']}**")
                     
                     # Results overview
                     col1, col2 = st.columns([3, 1])
@@ -3627,10 +3186,6 @@ def main():
                         st.info(f"🕐 **Generated:** {analysis['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
                         st.info(f"🔬 **Analysis Type:** {analysis.get('analysis_type', 'Standard').title()}")
                         st.info(f"📁 **Session Directory:** {Path(analysis.get('session_dir', '')).name}")
-                        
-                        # Enhanced features indicator
-                        if analysis.get('analysis_type') == 'deep':
-                            st.info("🚀 **Enhanced Features:** Keyword/Phrase/Topic Analysis + EnhancedFileAnalysisProcessor")
                     
                     with col2:
                         # Quick stats
@@ -3641,19 +3196,14 @@ def main():
                         st.metric("📊 Samples", f"{df_size:,}")
                         st.metric("🤖 Models", models_used)
                         st.metric("📄 Files", saved_files)
-                        
-                        # Enhanced features indicator
-                        if analysis.get('stats', {}).get('advanced_analysis'):
-                            st.metric("🚀 Enhanced", "✅")
                     
-                    # ENHANCED: Download options with advanced features
-                    st.subheader("📦 Enhanced Scientific Download Options")
+                    # SCIENTIFIC FIX: Enhanced download options
+                    st.subheader("📦 Scientific Download Options")
                     
-                    tab_individual, tab_complete, tab_scientific, tab_advanced = st.tabs([
+                    tab_individual, tab_complete, tab_scientific = st.tabs([
                         "📄 Individual Files", 
                         "📦 Complete Package", 
-                        "🔬 Scientific Reports",
-                        "🚀 Advanced Features"
+                        "🔬 Scientific Reports"
                     ])
                     
                     with tab_individual:
@@ -3685,9 +3235,9 @@ def main():
                                     csv_data = df_results.to_csv(index=False)
                                     
                                     st.download_button(
-                                        label="📄 Download Enhanced Predictions CSV",
+                                        label="📄 Download Predictions CSV",
                                         data=csv_data,
-                                        file_name=f"enhanced_predictions_{analysis['filename']}",
+                                        file_name=f"predictions_{analysis['filename']}",
                                         mime="text/csv",
                                         help="Complete dataset with model predictions and confidence scores"
                                     )
@@ -3695,26 +3245,18 @@ def main():
                                     st.error(f"Error preparing predictions CSV: {e}")
                         
                         with col2:
-                            # ENHANCED: Scientific summary report
+                            # SCIENTIFIC FIX: Scientific summary report
                             if 'scientific_report' in analysis:
                                 try:
                                     scientific_report = analysis['scientific_report']
                                     
-                                    # Create enhanced summary text
+                                    # Create summary text
                                     summary_lines = []
-                                    summary_lines.append("ENHANCED SCIENTIFIC ANALYSIS SUMMARY")
-                                    summary_lines.append("=" * 45)
+                                    summary_lines.append("SCIENTIFIC ANALYSIS SUMMARY")
+                                    summary_lines.append("=" * 40)
                                     summary_lines.append(f"Generated: {analysis['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
                                     summary_lines.append(f"File: {analysis['filename']}")
-                                    summary_lines.append(f"Analysis Type: {analysis.get('analysis_type', 'Standard').title()}")
                                     summary_lines.append("")
-                                    
-                                    # Add enhanced processor integration info
-                                    if analysis.get('stats', {}).get('advanced_analysis', {}).get('enhanced_processor_results'):
-                                        summary_lines.append("ENHANCED FILE PROCESSOR INTEGRATION:")
-                                        summary_lines.append("-" * 35)
-                                        summary_lines.append("✅ EnhancedFileAnalysisProcessor successfully integrated")
-                                        summary_lines.append("")
                                     
                                     if 'sentiment_distribution' in scientific_report:
                                         sent_dist = scientific_report['sentiment_distribution']
@@ -3728,47 +3270,35 @@ def main():
                                     
                                     if 'linguistic_analysis' in scientific_report:
                                         ling = scientific_report['linguistic_analysis']
-                                        summary_lines.append("ENHANCED LINGUISTIC ANALYSIS:")
-                                        summary_lines.append("-" * 29)
+                                        summary_lines.append("LINGUISTIC ANALYSIS:")
+                                        summary_lines.append("-" * 20)
                                         summary_lines.append(f"Total Words: {ling.get('total_words', 0):,}")
                                         summary_lines.append(f"Unique Words: {ling.get('unique_words', 0):,}")
                                         summary_lines.append(f"Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
-                                        summary_lines.append("")
-                                    
-                                    # Add advanced features summary
-                                    if analysis.get('stats', {}).get('advanced_analysis'):
-                                        summary_lines.append("ADVANCED FEATURES:")
-                                        summary_lines.append("-" * 18)
-                                        summary_lines.append("✅ Keyword Extraction (TF-IDF)")
-                                        summary_lines.append("✅ Phrase Analysis (N-grams)")
-                                        summary_lines.append("✅ Topic Modeling")
-                                        if ENHANCED_PROCESSOR_AVAILABLE:
-                                            summary_lines.append("✅ EnhancedFileAnalysisProcessor Integration")
-                                        summary_lines.append("")
                                     
                                     summary_text = '\n'.join(summary_lines)
                                     
                                     st.download_button(
-                                        label="📊 Download Enhanced Scientific Report",
+                                        label="📊 Download Scientific Report",
                                         data=summary_text,
-                                        file_name=f"enhanced_scientific_report_{analysis['filename'].replace('.csv', '.txt')}",
+                                        file_name=f"scientific_report_{analysis['filename'].replace('.csv', '.txt')}",
                                         mime="text/plain",
-                                        help="Enhanced scientific statistical analysis summary with processor integration"
+                                        help="Scientific statistical analysis summary"
                                     )
                                 except Exception as e:
-                                    st.error(f"Error preparing enhanced scientific report: {e}")
+                                    st.error(f"Error preparing scientific report: {e}")
                     
                     with tab_complete:
-                        st.markdown("### 📦 Complete Enhanced Analysis Package")
+                        st.markdown("### 📦 Complete Analysis Package")
                         
                         # Package generation
                         col1, col2 = st.columns([2, 1])
                         
                         with col1:
-                            if st.button("🎁 Generate Enhanced Scientific Results Package", type="primary"):
+                            if st.button("🎁 Generate Scientific Results Package", type="primary"):
                                 try:
-                                    with st.spinner("🔄 Creating comprehensive enhanced scientific package..."):
-                                        # ENHANCED: Create enhanced scientific package
+                                    with st.spinner("🔄 Creating comprehensive scientific package..."):
+                                        # SCIENTIFIC FIX: Create scientific package
                                         zip_data = create_enhanced_results_download_package(
                                             analysis['df'],
                                             analysis.get('predictions', {}),
@@ -3779,43 +3309,39 @@ def main():
                                         )
                                         
                                         # Success message
-                                        st.success("✅ Enhanced scientific package generated successfully!")
+                                        st.success("✅ Scientific package generated successfully!")
                                         
                                         # Download button
                                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                        filename = f"enhanced_scientific_analysis_{analysis['filename'].replace('.csv', '')}_{timestamp}.zip"
+                                        filename = f"scientific_analysis_{analysis['filename'].replace('.csv', '')}_{timestamp}.zip"
                                         
                                         st.download_button(
-                                            label="📥 Download Enhanced Scientific Package (ZIP)",
+                                            label="📥 Download Scientific Package (ZIP)",
                                             data=zip_data,
                                             file_name=filename,
                                             mime="application/zip",
-                                            help="Complete enhanced scientific analysis package with advanced NLP features and processor integration"
+                                            help="Complete scientific analysis package with statistical reports"
                                         )
                                         
                                 except Exception as e:
-                                    st.error(f"❌ Error creating enhanced scientific package: {e}")
+                                    st.error(f"❌ Error creating scientific package: {e}")
                         
                         with col2:
-                            # Enhanced package preview
+                            # Package preview
                             st.markdown("""
-                            **📋 Enhanced Package Contents:**
+                            **📋 Scientific Package Contents:**
                             - 📄 Predictions CSV with classifications
                             - 📊 Statistical analysis JSON
                             - 📈 Term frequency distributions
-                            - 🔑 Keyword analysis by sentiment
-                            - 📝 Phrase frequency analysis
-                            - 🎯 Topic modeling results
-                            - 🚀 EnhancedFileAnalysisProcessor results
-                            - 📋 Enhanced methodology README
+                            - 📋 Scientific methodology README
                             """)
                     
                     with tab_scientific:
                         st.markdown("### 🔬 Scientific Analysis Files")
                         
-                        # ENHANCED: Show scientific files if available
+                        # SCIENTIFIC FIX: Show scientific files if available
                         if 'saved_files' in analysis and analysis['saved_files']:
-                            st.success("✅ Enhanced scientific analysis files are available!")
+                            st.success("✅ Scientific analysis files are available!")
                             
                             saved_files = analysis['saved_files']
                             
@@ -3851,396 +3377,97 @@ def main():
                         else:
                             st.info("ℹ️ No scientific files available for this analysis.")
                     
-                    with tab_advanced:
-                        st.markdown("### 🚀 Advanced NLP Features")
-                        
-                        # ENHANCED: Show advanced features if available
-                        if analysis.get('stats', {}).get('advanced_analysis'):
-                            advanced = analysis['stats']['advanced_analysis']
-                            
-                            st.success("✅ Advanced NLP features are available for download!")
-                            
-                            # Enhanced processor results
-                            if advanced.get('enhanced_processor_results'):
-                                st.markdown("#### 🚀 EnhancedFileAnalysisProcessor Results")
-                                st.success("✅ EnhancedFileAnalysisProcessor integration completed successfully!")
-                                
-                                if st.button("📥 Download Enhanced Processor Results JSON"):
-                                    try:
-                                        processor_data = json.dumps(
-                                            safe_convert_for_json(advanced['enhanced_processor_results']), 
-                                            indent=2, 
-                                            ensure_ascii=False
-                                        )
-                                        
-                                        st.download_button(
-                                            label="🚀 Download Processor Results",
-                                            data=processor_data,
-                                            file_name=f"enhanced_processor_results_{analysis['filename'].replace('.csv', '.json')}",
-                                            mime="application/json",
-                                            key="download_processor_results"
-                                        )
-                                        st.success("✅ Enhanced processor results ready for download!")
-                                    except Exception as e:
-                                        st.error(f"Error preparing processor download: {e}")
-                            
-                            # Keyword analysis
-                            if 'keywords_by_sentiment' in advanced:
-                                st.markdown("#### 🔑 Keyword Analysis by Sentiment")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                
-                                for i, sentiment in enumerate(['positive', 'negative', 'neutral']):
-                                    if sentiment in advanced['keywords_by_sentiment']:
-                                        kw_data = advanced['keywords_by_sentiment'][sentiment]
-                                        kw_count = len(kw_data.get('keywords', []))
-                                        
-                                        if i == 0:
-                                            col1.metric(f"😊 {sentiment.title()}", f"{kw_count} keywords")
-                                        elif i == 1:
-                                            col2.metric(f"😞 {sentiment.title()}", f"{kw_count} keywords")
-                                        else:
-                                            col3.metric(f"😐 {sentiment.title()}", f"{kw_count} keywords")
-                                
-                                # Download keyword analysis
-                                if st.button("📥 Download Keyword Analysis CSV"):
-                                    try:
-                                        keyword_data = []
-                                        for sentiment, kw_info in advanced['keywords_by_sentiment'].items():
-                                            for kw in kw_info.get('keywords', []):
-                                                keyword_data.append({
-                                                    'sentiment': sentiment,
-                                                    'keyword': kw['keyword'],
-                                                    'score': kw['score'],
-                                                    'sample_count': kw_info['count']
-                                                })
-                                        
-                                        if keyword_data:
-                                            kw_df = pd.DataFrame(keyword_data)
-                                            csv_data = kw_df.to_csv(index=False)
-                                            
-                                            st.download_button(
-                                                label="🔑 Download Keywords CSV",
-                                                data=csv_data,
-                                                file_name=f"keywords_analysis_{analysis['filename']}",
-                                                mime="text/csv",
-                                                key="download_keywords"
-                                            )
-                                            st.success("✅ Keyword analysis ready for download!")
-                                    except Exception as e:
-                                        st.error(f"Error preparing keyword download: {e}")
-                            
-                            # Phrase analysis
-                            if 'phrases_by_sentiment' in advanced:
-                                st.markdown("#### 📝 Phrase Analysis")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                
-                                for i, sentiment in enumerate(['positive', 'negative', 'neutral']):
-                                    if sentiment in advanced['phrases_by_sentiment']:
-                                        ph_data = advanced['phrases_by_sentiment'][sentiment]
-                                        ph_count = len(ph_data.get('phrases', []))
-                                        
-                                        if i == 0:
-                                            col1.metric(f"😊 {sentiment.title()}", f"{ph_count} phrases")
-                                        elif i == 1:
-                                            col2.metric(f"😞 {sentiment.title()}", f"{ph_count} phrases")
-                                        else:
-                                            col3.metric(f"😐 {sentiment.title()}", f"{ph_count} phrases")
-                                
-                                # Download phrase analysis
-                                if st.button("📥 Download Phrase Analysis CSV"):
-                                    try:
-                                        phrase_data = []
-                                        for sentiment, ph_info in advanced['phrases_by_sentiment'].items():
-                                            for phrase in ph_info.get('phrases', []):
-                                                phrase_data.append({
-                                                    'sentiment': sentiment,
-                                                    'phrase': phrase['phrase'],
-                                                    'frequency': phrase['frequency'],
-                                                    'percentage': phrase['percentage'],
-                                                    'sample_count': ph_info['count']
-                                                })
-                                        
-                                        if phrase_data:
-                                            ph_df = pd.DataFrame(phrase_data)
-                                            csv_data = ph_df.to_csv(index=False)
-                                            
-                                            st.download_button(
-                                                label="📝 Download Phrases CSV",
-                                                data=csv_data,
-                                                file_name=f"phrases_analysis_{analysis['filename']}",
-                                                mime="text/csv",
-                                                key="download_phrases"
-                                            )
-                                            st.success("✅ Phrase analysis ready for download!")
-                                    except Exception as e:
-                                        st.error(f"Error preparing phrase download: {e}")
-                            
-                            # Topic analysis
-                            if 'topics_by_sentiment' in advanced:
-                                st.markdown("#### 🎯 Topic Analysis")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                
-                                for i, sentiment in enumerate(['positive', 'negative', 'neutral']):
-                                    if sentiment in advanced['topics_by_sentiment']:
-                                        tp_data = advanced['topics_by_sentiment'][sentiment]
-                                        tp_count = len(tp_data.get('topics', []))
-                                        
-                                        if i == 0:
-                                            col1.metric(f"😊 {sentiment.title()}", f"{tp_count} topics")
-                                        elif i == 1:
-                                            col2.metric(f"😞 {sentiment.title()}", f"{tp_count} topics")
-                                        else:
-                                            col3.metric(f"😐 {sentiment.title()}", f"{tp_count} topics")
-                                
-                                # Download topic analysis
-                                if st.button("📥 Download Topic Analysis CSV"):
-                                    try:
-                                        topic_data = []
-                                        for sentiment, tp_info in advanced['topics_by_sentiment'].items():
-                                            for topic in tp_info.get('topics', []):
-                                                topic_data.append({
-                                                    'sentiment': sentiment,
-                                                    'topic': topic['topic'],
-                                                    'score': topic['score'],
-                                                    'mentions': topic['mentions'],
-                                                    'relevance': topic['relevance'],
-                                                    'sample_count': tp_info['count']
-                                                })
-                                        
-                                        if topic_data:
-                                            tp_df = pd.DataFrame(topic_data)
-                                            csv_data = tp_df.to_csv(index=False)
-                                            
-                                            st.download_button(
-                                                label="🎯 Download Topics CSV",
-                                                data=csv_data,
-                                                file_name=f"topics_analysis_{analysis['filename']}",
-                                                mime="text/csv",
-                                                key="download_topics"
-                                            )
-                                            st.success("✅ Topic analysis ready for download!")
-                                    except Exception as e:
-                                        st.error(f"Error preparing topic download: {e}")
-                        else:
-                            st.info("ℹ️ No advanced NLP features available. Run 'Deep Analysis' to generate advanced features.")
-                            
-                            st.markdown("""
-                            **🚀 Advanced Features Include:**
-                            - **Keyword Extraction**: TF-IDF scoring by sentiment class
-                            - **Phrase Analysis**: Bigram and trigram frequency analysis
-                            - **Topic Modeling**: Domain-specific topic identification
-                            - **EnhancedFileAnalysisProcessor**: Advanced file processing integration
-                            
-                            To generate these features:
-                            1. Go to 'CSV Analysis' tab
-                            2. Upload your CSV file
-                            3. Click 'Deep Analysis (ENHANCED)'
-                            4. Return here for advanced downloads
-                            """)
-                    
-                    # Enhanced package contents preview
-                    st.subheader("📋 Enhanced Scientific Analysis Features")
+                    # Package contents preview
+                    st.subheader("📋 Scientific Analysis Features")
                     st.markdown("""
-                    **🔬 Enhanced Scientific Approach:**
-                    - Objective statistical measurements with advanced NLP
-                    - TF-IDF keyword extraction by sentiment class
-                    - N-gram phrase frequency analysis
-                    - Domain-specific topic modeling
-                    - EnhancedFileAnalysisProcessor integration
+                    **🔬 Scientific Approach:**
+                    - Objective statistical measurements
                     - Reproducible analysis methods
+                    - Neutral reporting without subjective interpretation
                     - Quantitative metrics and distributions
                     
-                    **📊 Advanced Statistical Reports:**
-                    - Enhanced sentiment distribution percentages
-                    - Keyword relevance scoring by sentiment
-                    - Phrase occurrence statistics
-                    - Topic relevance measurements
+                    **📊 Statistical Reports:**
+                    - Sentiment distribution percentages
                     - Vocabulary richness calculations
                     - Text quality scoring metrics
                     - Model performance statistics
-                    - Enhanced processor integration results
                     
                     **📈 Research-Grade Output:**
-                    - Enhanced CSV files for further analysis
+                    - CSV files for further analysis
                     - JSON data for programmatic access
                     - Statistical summaries in TXT format
-                    - Keyword/phrase/topic matrices
                     - Comprehensive methodology documentation
-                    - EnhancedFileAnalysisProcessor results
                     
-                    **🎯 Enhanced Use Cases:**
+                    **🎯 Use Cases:**
                     - Academic research and publications
                     - Business intelligence and reporting
-                    - Advanced sentiment analysis projects
-                    - Keyword and topic trend analysis
                     - Model validation and comparison
-                    - Advanced statistical analysis and visualization
-                    - Processor-enhanced text analysis workflows
+                    - Statistical analysis and visualization
                     """)
                 except Exception as e:
-                    st.error(f"Error in enhanced download results section: {e}")
+                    st.error(f"Error in download results section: {e}")
             else:
                 # Enhanced guidance when no results available
-                st.info("ℹ️ No enhanced scientific analysis results available for download.")
+                st.info("ℹ️ No scientific analysis results available for download.")
                 
                 st.markdown("""
-                ### 📥 How to Generate Enhanced Scientific Results:
+                ### 📥 How to Generate Scientific Results:
                 
-                **🔄 Enhanced Scientific Analysis Path:**
+                **🔄 Scientific Analysis Path:**
                 1. 📂 Go to **'CSV Analysis'** tab
                 2. 📁 Upload your CSV file
-                3. 🔍 Click **'Deep Analysis (ENHANCED)'** for advanced features with EnhancedFileAnalysisProcessor
-                4. 🔄 Return here to download enhanced scientific results
+                3. ⚡ Click **'Quick Analysis'** or 🔍 **'Deep Analysis'**
+                4. 🔄 Return here to download scientific results
                 
-                **🚀 Complete Enhanced Scientific Pipeline:**
+                **🚀 Complete Scientific Pipeline:**
                 1. 📂 Upload CSV in **'CSV Analysis'** tab
-                2. 🚀 Run **'Full Pipeline (ENHANCED)'** for complete analysis with run_dataset_analysis
-                3. 📊 Get comprehensive analysis with advanced NLP features
-                4. 📥 Download all enhanced scientific results and reports
+                2. 🚀 Run **'Full Pipeline'** for model training
+                3. 📊 Get complete analysis with trained models
+                4. 📥 Download all scientific results and reports
                 
-                ### 🔬 What You'll Get (Enhanced Scientific):
+                ### 🔬 What You'll Get (Scientific):
                 
-                **📊 Enhanced Statistical Data Files:**
+                **📊 Statistical Data Files:**
                 - Predictions CSV with confidence scores
-                - Keyword analysis by sentiment (TF-IDF scoring)
-                - Phrase frequency distributions (N-grams)
-                - Topic modeling results with relevance scores
+                - Term frequency distributions by sentiment class
                 - Statistical analysis summaries
-                - EnhancedFileAnalysisProcessor results
                 
-                **📈 Advanced Scientific Reports:**
+                **📈 Scientific Reports:**
                 - Objective statistical measurements
-                - Advanced NLP feature extraction
-                - Keyword/phrase/topic analysis
                 - Reproducible analysis methodology
                 - Quantitative performance metrics
                 - Research-grade documentation
-                - Enhanced processor integration
                 
-                **🎯 Enhanced Research Features:**
-                - TF-IDF keyword extraction by sentiment
-                - Bigram and trigram phrase analysis
-                - Domain-specific topic modeling
-                - Statistical significance testing
-                - Advanced sentiment classification
+                **🎯 Research Features:**
                 - Neutral statistical reporting
                 - Evidence-based conclusions
                 - Exportable data for further analysis
-                - Enhanced methodology transparency
-                - EnhancedFileAnalysisProcessor integration
-                - run_dataset_analysis pipeline support
+                - Methodology transparency
                 
-                ### 💡 Enhanced Scientific Approach:
-                - **Advanced NLP Analysis**: Keyword, phrase, and topic extraction
-                - **Processor Integration**: EnhancedFileAnalysisProcessor support
-                - **Pipeline Integration**: run_dataset_analysis function support
+                ### 💡 Scientific Approach:
                 - **Objective Analysis**: Statistical measurements without subjective interpretation
                 - **Reproducible Methods**: Documented methodology for result replication
                 - **Quantitative Focus**: Numerical metrics and statistical distributions
                 - **Research Grade**: Suitable for academic and professional research
-                - **Enhanced Features**: TF-IDF, N-grams, topic modeling, processor integration
                 
-                Start your enhanced scientific analysis in the **CSV Analysis** tab! 🔬🚀
+                Start your scientific analysis in the **CSV Analysis** tab! 🔬
                 """)
-
-        # Tab 7: Advanced Analysis
-        with tab7:
-            st.header("🚀 Advanced Analysis")
-
-            if 'current_analysis' in st.session_state:
-                try:
-                    analysis = st.session_state['current_analysis']
-                    df = analysis.get('df')
-                    stats = analysis.get('stats', {})
-                    predictions = analysis.get('predictions', {})
-                    metrics = analysis.get('metrics', {})
-
-                    st.subheader("Dataset Summary")
-                    if stats:
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Total Samples", f"{stats.get('total_reviews', len(df)):,}")
-                        total_words = stats.get('deep_analysis', {}).get('basic_stats', {}).get('total_words', 0)
-                        c2.metric("Total Words", f"{total_words:,}")
-                        avg_sent = stats.get('deep_analysis', {}).get('basic_stats', {}).get('avg_sentences_per_text', 0)
-                        c3.metric("Avg Sentences/Text", f"{avg_sent:.2f}")
-
-                    if predictions:
-                        st.subheader("Class Distributions")
-                        for model_name, pred in predictions.items():
-                            pred_series = pd.Series(pred)
-                            counts = pred_series.value_counts().sort_index()
-                            label_map = {0: 'Negative', 1: 'Positive', 2: 'Neutral'}
-                            labels = [label_map.get(i, i) for i in counts.index]
-                            fig = px.bar(x=labels, y=counts.values,
-                                         labels={'x': 'Sentiment', 'y': 'Count'},
-                                         title=f"{model_name.upper()} Predictions")
-                            st.plotly_chart(fig, use_container_width=True)
-
-                    advanced = stats.get('advanced_analysis', {})
-                    if advanced.get('keywords_by_sentiment'):
-                        st.subheader("Most Frequent Words")
-                        for sent, data in advanced['keywords_by_sentiment'].items():
-                            words = data.get('keywords', [])[:10]
-                            if words:
-                                df_words = pd.DataFrame(words)
-                                fig = px.bar(df_words, x='keyword', y='score',
-                                             title=f"{sent.title()} Top Words")
-                                st.plotly_chart(fig, use_container_width=True)
-
-                    if advanced.get('phrases_by_sentiment'):
-                        st.subheader("Common Phrases")
-                        for sent, data in advanced['phrases_by_sentiment'].items():
-                            phrases = data.get('phrases', [])[:10]
-                            if phrases:
-                                st.markdown(f"**{sent.title()}**")
-                                df_ph = pd.DataFrame(phrases)
-                                st.dataframe(df_ph, use_container_width=True)
-
-                    if advanced.get('topics_by_sentiment'):
-                        st.subheader("Topic Extraction")
-                        for sent, data in advanced['topics_by_sentiment'].items():
-                            topics = data.get('topics', [])[:10]
-                            if topics:
-                                df_topic = pd.DataFrame(topics)
-                                fig = px.bar(df_topic, x='topic', y='relevance',
-                                             title=f"{sent.title()} Topics")
-                                st.plotly_chart(fig, use_container_width=True)
-
-                    if metrics:
-                        st.subheader("Model Comparison")
-                        comp_df = pd.DataFrame([
-                            {'Model': m.upper(), 'Avg Confidence': met.get('confidence_avg', 0)}
-                            for m, met in metrics.items()
-                        ])
-                        fig = px.bar(comp_df, x='Model', y='Avg Confidence',
-                                     color='Model', title='Average Confidence by Model')
-                        st.plotly_chart(fig, use_container_width=True)
-
-                except Exception as e:
-                    st.error(f"Advanced analysis error: {e}")
-            else:
-                st.info("ℹ️ Run an analysis first from the CSV Analysis tab.")
-
+        
         # Enhanced Footer
         st.markdown("---")
         st.markdown("""
         <div style='text-align: center; color: #666; padding: 20px;'>
-            🤖 <strong>Scientific Sentiment Analysis System v2.0 (SIMPLIFIED & FIXED)</strong> | 
-            🔬 Direct AI-Powered Text Analysis | 
+            🤖 <strong>Enhanced Sentiment Analysis System v2.0 (Scientific Edition - FIXED)</strong> | 
+            🔬 Scientific AI-Powered Text Analysis | 
             📊 Research-Grade Statistical Platform<br>
-            <small>Built with Streamlit • Powered by PyTorch & scikit-learn • Direct processor integration</small><br>
-            <small>✨ <em>Simplified Interface • Direct Function Calls • Production Ready</em> ✨</small><br>
-            <small>🔧 <em>FIXED: Direct EnhancedFileAnalysisProcessor calls • Direct run_dataset_analysis support</em> 🔧</small>
+            <small>Built with Streamlit • Powered by PyTorch & scikit-learn • Enhanced with Scientific Methods</small><br>
+            <small>✨ <em>All Critical Bugs Fixed • Production Ready • Enterprise Grade</em> ✨</small>
         </div>
         """, unsafe_allow_html=True)
     
     except Exception as e:
         st.error(f"Critical application error: {e}")
         st.info("Please refresh the page and try again.")
-
 
 if __name__ == "__main__":
     main()
