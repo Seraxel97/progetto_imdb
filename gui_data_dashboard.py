@@ -64,7 +64,7 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
-from analysis_helpers import (
+from scripts.analysis_helpers import (
     safe_generate_report,
     extract_top_phrases,
     generate_topic_summary,
@@ -321,8 +321,16 @@ def load_trained_models():
     
     if models['svm'] is None:
         st.info("ℹ️ SVM model not found. Train one first using the pipeline.")
-    
+
     return models
+
+
+def tokenize_text(text: str) -> List[str]:
+    """Tokenize text and handle merged words and HTML tags."""
+    clean = re.sub(r'(?:<br\s*/?>)+', ' ', text)
+    clean = re.sub(r'[^A-Za-z0-9\s]', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return re.findall(r'\b\w+\b', clean.lower())
 
 @st.cache_data
 def load_main_dataset():
@@ -542,7 +550,7 @@ def enhanced_deep_text_analysis(df: pd.DataFrame, text_column: str) -> Dict:
         
         for text in texts:
             try:
-                words = re.findall(r'\b\w+\b', str(text).lower())
+                words = tokenize_text(str(text))
                 sentences = re.split(r'[.!?]+', str(text))
                 
                 all_words.extend(words)
@@ -1505,62 +1513,6 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                             for phrase, score in top_phrases[:5]:
                                 st.write(f"- {phrase}")
 
-        # Classification Metrics if ground truth labels are available
-        if stats.get('sentiment_column') and predictions:
-            true_labels = df[stats['sentiment_column']].tolist()
-            st.subheader("📑 Classification Metrics")
-            for model_name, pred in predictions.items():
-                if len(pred) == len(true_labels):
-                    try:
-                        acc = accuracy_score(true_labels, pred)
-                        f1 = f1_score(true_labels, pred, average='weighted')
-                        st.markdown(f"**{model_name.upper()}**")
-                        st.write(f"Accuracy: {acc:.3f} | F1-score: {f1:.3f}")
-                        cm = confusion_matrix(true_labels, pred)
-                        fig_cm = px.imshow(cm, text_auto=True,
-                                         x=['neg','pos','neu'], y=['neg','pos','neu'],
-                                         color_continuous_scale='Blues',
-                                         title=f'{model_name.upper()} Confusion Matrix')
-                        st.plotly_chart(fig_cm, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Could not compute metrics for {model_name}: {e}")
-
-        # Confidence Score Analysis
-        if metrics:
-            st.subheader("📈 Model Confidence Analysis")
-            
-            for model_name, model_metrics in metrics.items():
-                if 'confidence_scores' in model_metrics:
-                    confidence_scores = model_metrics['confidence_scores']
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        fig_conf = px.histogram(
-                            x=confidence_scores,
-                            nbins=20,
-                            title=f'{model_name.upper()} Confidence Score Distribution',
-                            labels={'x': 'Confidence Score', 'y': 'Count'}
-                        )
-                        fig_conf.add_vline(x=np.mean(confidence_scores), line_dash="dash", 
-                                         annotation_text=f"Mean: {np.mean(confidence_scores):.3f}")
-                        st.plotly_chart(fig_conf, use_container_width=True)
-                    
-                    with col2:
-                        st.markdown(f"**{model_name.upper()} Confidence Statistics:**")
-                        st.write(f"• Mean: {np.mean(confidence_scores):.3f}")
-                        st.write(f"• Median: {np.median(confidence_scores):.3f}")
-                        st.write(f"• Std Dev: {np.std(confidence_scores):.3f}")
-                        st.write(f"• Min: {np.min(confidence_scores):.3f}")
-                        st.write(f"• Max: {np.max(confidence_scores):.3f}")
-                        
-                        high_conf = len([c for c in confidence_scores if c > 0.8])
-                        medium_conf = len([c for c in confidence_scores if 0.6 <= c <= 0.8])
-                        low_conf = len([c for c in confidence_scores if c < 0.6])
-                        
-                        st.write(f"• High Confidence (>0.8): {high_conf} ({high_conf/len(confidence_scores)*100:.1f}%)")
-                        st.write(f"• Medium Confidence (0.6-0.8): {medium_conf} ({medium_conf/len(confidence_scores)*100:.1f}%)")
-                        st.write(f"• Low Confidence (<0.6): {low_conf} ({low_conf/len(confidence_scores)*100:.1f}%)")
         
         # Text Length Distribution Analysis
         text_col = stats.get('text_column')
@@ -1580,10 +1532,18 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                         title="Character Length Distribution",
                         labels={'x': 'Characters', 'y': 'Frequency'}
                     )
-                    fig_char.add_vline(x=lengths.mean(), line_dash="dash", 
-                                     annotation_text=f"Mean: {lengths.mean():.0f}")
-                    fig_char.add_vline(x=lengths.median(), line_dash="dot", 
-                                     annotation_text=f"Median: {lengths.median():.0f}")
+                    fig_char.add_vline(
+                        x=lengths.mean(),
+                        line_dash="dash",
+                        annotation_text=f"Mean: {lengths.mean():.0f}",
+                        annotation_position="top left"
+                    )
+                    fig_char.add_vline(
+                        x=lengths.median(),
+                        line_dash="dot",
+                        annotation_text=f"Median: {lengths.median():.0f}",
+                        annotation_position="top right"
+                    )
                     st.plotly_chart(fig_char, use_container_width=True)
                 
                 with col2:
@@ -1593,10 +1553,18 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                         title="Word Count Distribution",
                         labels={'x': 'Words', 'y': 'Frequency'}
                     )
-                    fig_words.add_vline(x=word_counts.mean(), line_dash="dash",
-                                      annotation_text=f"Mean: {word_counts.mean():.1f}")
-                    fig_words.add_vline(x=word_counts.median(), line_dash="dot",
-                                      annotation_text=f"Median: {word_counts.median():.0f}")
+                    fig_words.add_vline(
+                        x=word_counts.mean(),
+                        line_dash="dash",
+                        annotation_text=f"Mean: {word_counts.mean():.1f}",
+                        annotation_position="top left"
+                    )
+                    fig_words.add_vline(
+                        x=word_counts.median(),
+                        line_dash="dot",
+                        annotation_text=f"Median: {word_counts.median():.0f}",
+                        annotation_position="top right"
+                    )
                     st.plotly_chart(fig_words, use_container_width=True)
                 
                 st.markdown("**Text Length Statistics:**")
@@ -1636,48 +1604,6 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
                 term_list = key_terms
             st.write(', '.join([str(t) for t in term_list[:10]]))
         
-        # Word Cloud by Sentiment Class
-        if WORDCLOUD_AVAILABLE and sentiment_analysis and text_col:
-            st.subheader("☁️ Word Clouds by Sentiment Class")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            sentiments = ['positive', 'negative', 'neutral']
-            colors = ['Greens', 'Reds', 'Blues']
-            
-            for i, (sentiment, colormap) in enumerate(zip(sentiments, colors)):
-                if sentiment in sentiment_analysis and sentiment_analysis[sentiment]['texts']:
-                    try:
-                        texts = sentiment_analysis[sentiment]['texts']
-                        wordcloud_img = create_wordcloud_visualization(
-                            texts, 
-                            f"{sentiment.title()} Word Cloud"
-                        )
-                        
-                        if wordcloud_img:
-                            if i == 0:
-                                col1.markdown(f"**{sentiment.title()}**")
-                                col1.markdown(
-                                    f'<img src="data:image/png;base64,{wordcloud_img}" '
-                                    f'style="width: 100%; border-radius: 10px;">',
-                                    unsafe_allow_html=True
-                                )
-                            elif i == 1:
-                                col2.markdown(f"**{sentiment.title()}**")
-                                col2.markdown(
-                                    f'<img src="data:image/png;base64,{wordcloud_img}" '
-                                    f'style="width: 100%; border-radius: 10px;">',
-                                    unsafe_allow_html=True
-                                )
-                            else:
-                                col3.markdown(f"**{sentiment.title()}**")
-                                col3.markdown(
-                                    f'<img src="data:image/png;base64,{wordcloud_img}" '
-                                    f'style="width: 100%; border-radius: 10px;">',
-                                    unsafe_allow_html=True
-                                )
-                    except Exception as e:
-                        st.warning(f"Could not generate {sentiment} wordcloud: {e}")
     
     except Exception as e:
         st.error(f"Error creating scientific visualizations: {e}")
@@ -2237,37 +2163,6 @@ def main():
                 except Exception as e:
                     st.error(f"Could not display column information: {e}")
                 
-                # FIXED: Auto-generate advanced insights with error handling
-                st.subheader("🧠 Intelligent Dataset Insights")
-                
-                # Check for text column to do advanced analysis
-                text_columns = ['review', 'text', 'content', 'comment', 'message', 'description']
-                text_col = None
-                for col in text_columns:
-                    if col in main_df.columns:
-                        text_col = col
-                        break
-                
-                if text_col:
-                    try:
-                        with st.spinner("🔄 Generating comprehensive insights..."):
-                            # Run enhanced deep analysis
-                            deep_analysis = enhanced_deep_text_analysis(main_df, text_col)
-                            main_insights = generate_narrative_insights(main_df, deep_analysis=deep_analysis)
-                            
-                            # Display insights in enhanced format
-                            for i, insight in enumerate(main_insights):
-                                if i % 2 == 0:
-                                    st.markdown(f'<div class="insights-box">{insight}</div>', 
-                                               unsafe_allow_html=True)
-                                else:
-                                    st.markdown(f'<div class="narrative-comment">{insight}</div>', 
-                                               unsafe_allow_html=True)
-                    except Exception as e:
-                        st.error(f"Could not generate insights: {e}")
-                        st.info("Basic dataset loaded successfully, but advanced insights failed.")
-                else:
-                    st.info("No text column found for advanced analysis.")
             else:
                 st.info("ℹ️ No main dataset found. Please upload a CSV file in the 'CSV Analysis' tab.")
                 
@@ -2286,291 +2181,6 @@ def main():
                 "It was okay, nothing special",neutral
                 ```
                 """)
-        
-        # Tab 2: FIXED Models & Predictions with comprehensive error handling
-        with tab2:
-            st.header("🧠 Advanced Models & Predictions")
-            
-            # Display model status
-            st.subheader("🔧 Model Status Dashboard")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### 🤖 MLP Neural Network")
-                try:
-                    if models['status']['mlp'] == 'loaded':
-                        st.markdown('<div class="status-success">✅ MLP Model: Loaded & Ready</div>', 
-                                   unsafe_allow_html=True)
-                        # Try to get model info
-                        try:
-                            mlp_model = models['mlp']
-                            total_params = sum(p.numel() for p in mlp_model.parameters())
-                            st.info(f"📊 Parameters: {total_params:,}")
-                            st.info(f"🔧 Device: {next(mlp_model.parameters()).device}")
-                        except Exception:
-                            pass
-                    elif models['status']['mlp'] == 'error':
-                        st.markdown('<div class="status-error">❌ MLP Model: Error Loading</div>', 
-                                   unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="status-warning">⚠️ MLP Model: Not Found</div>', 
-                                   unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Error checking MLP status: {e}")
-            
-            with col2:
-                st.markdown("### ⚡ SVM Classifier")
-                try:
-                    if models['status']['svm'] == 'loaded':
-                        st.markdown('<div class="status-success">✅ SVM Model: Loaded & Ready</div>', 
-                                   unsafe_allow_html=True)
-                        # Try to get SVM info
-                        try:
-                            svm_package = models['svm']
-                            if isinstance(svm_package, dict):
-                                svm_model = svm_package.get('model')
-                                if svm_model:
-                                    st.info(f"🔧 Kernel: {getattr(svm_model, 'kernel', 'Unknown')}")
-                                    support_vectors = getattr(svm_model, 'n_support_', 'Unknown')
-                                    st.info(f"📊 Support Vectors: {support_vectors}")
-                        except Exception:
-                            pass
-                    elif models['status']['svm'] == 'error':
-                        st.markdown('<div class="status-error">❌ SVM Model: Error Loading</div>', 
-                                   unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="status-warning">⚠️ SVM Model: Not Found</div>', 
-                                   unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Error checking SVM status: {e}")
-            
-            # Enhanced Model training section
-            st.subheader("🏋️ Advanced Model Training")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("🚀 Train Both Models (Optimized)", type="primary"):
-                    if main_df is not None:
-                        st.info("🔄 Starting optimized model training pipeline...")
-                        
-                        try:
-                            # Save main dataset temporarily for training
-                            temp_csv_path = get_session_results_dir() / "temp_dataset.csv"
-                            main_df.to_csv(temp_csv_path, index=False)
-                            
-                            # Run complete pipeline
-                            success = run_complete_pipeline(str(temp_csv_path))
-                            
-                            if success:
-                                st.success("🎉 Model training completed successfully!")
-                                if st.button("🔄 Load New Models"):
-                                    st.cache_resource.clear()
-                                    st.rerun()
-                            else:
-                                st.error("❌ Model training failed. Check logs for details.")
-                        except Exception as e:
-                            st.error(f"Training error: {e}")
-                    else:
-                        st.warning("⚠️ Please load a dataset first!")
-            
-            with col2:
-                if st.button("⚡ Quick Training (Fast Mode)", type="secondary"):
-                    st.info("🚀 Fast training mode reduces epochs for quick testing")
-            
-            # Enhanced Prediction section
-            if any(model is not None for model in models.values()):
-                st.subheader("🔮 Advanced Prediction Interface")
-                
-                # Enhanced text input with examples
-                st.markdown("### 💬 Test Your Text")
-                
-                # Provide example texts
-                example_texts = [
-                    "This movie is absolutely fantastic! I loved every minute of it.",
-                    "Terrible service, worst experience ever. Would not recommend.",
-                    "The product is okay, nothing special but does the job.",
-                    "Amazing quality and fast delivery. Highly recommended!",
-                    "Disappointed with the purchase. Poor quality for the price."
-                ]
-                
-                selected_example = st.selectbox(
-                    "🎯 Choose an example or write your own:",
-                    [""] + example_texts,
-                    index=0
-                )
-                
-                test_text = st.text_area(
-                    "Enter text to analyze:",
-                    value=selected_example,
-                    placeholder="Type your text here... (e.g., 'This product exceeded my expectations!')",
-                    height=100
-                )
-                
-                if st.button("🎯 Analyze Text with All Models") and test_text.strip():
-                    if embedding_model:
-                        try:
-                            with st.spinner("🔄 Generating comprehensive prediction..."):
-                                # Generate embedding
-                                text_embedding = embedding_model.encode([test_text])
-                                
-                                # Make predictions with enhanced handling
-                                predictions, metrics = predict_sentiment_enhanced(
-                                    [test_text], text_embedding, models
-                                )
-                                
-                                # SCIENTIFIC FIX: Perform deep analysis on single text
-                                temp_df = pd.DataFrame({'text': [test_text]})
-                                deep_analysis = enhanced_deep_text_analysis(temp_df, 'text')
-                                
-                                # SCIENTIFIC FIX: Generate scientific report for single text
-                                scientific_report = safe_generate_report(temp_df, predictions, metrics, deep_analysis)
-                                
-                                # SCIENTIFIC FIX: Analyze sentiment patterns for single text
-                                if predictions:
-                                    all_predictions = []
-                                    for pred in predictions.values():
-                                        all_predictions.extend(pred)
-                                    sentiment_analysis = analyze_sentiment_by_class([test_text], all_predictions[:1])
-                                else:
-                                    sentiment_analysis = None
-                                
-                                # Display enhanced results
-                                st.subheader("🎯 Comprehensive Prediction Results")
-                                
-                                if predictions:
-                                    # Create comparison table
-                                    results_data = []
-                                    for model_name, pred in predictions.items():
-                                        label_map = {0: '😞 Negative', 1: '😊 Positive', 2: '😐 Neutral'}
-                                        result = label_map.get(pred[0], f'Class {pred[0]}')
-                                        
-                                        confidence = metrics[model_name]['confidence_avg']
-                                        model_type = metrics[model_name]['model_type']
-                                        
-                                        results_data.append({
-                                            'Model': model_name.upper(),
-                                            'Type': model_type,
-                                            'Prediction': result,
-                                            'Confidence': f"{confidence:.3f}",
-                                            'Level': 'High' if confidence > 0.8 else 'Medium' if confidence > 0.6 else 'Low'
-                                        })
-                                    
-                                    results_df = pd.DataFrame(results_data)
-                                    st.dataframe(results_df, use_container_width=True)
-
-                                    summary_parts = [f"{row['Model']}: {row['Prediction']} ({row['Confidence']})" for _, row in results_df.iterrows()]
-                                    st.info(" | ".join(summary_parts))
-                                    
-                                    # SCIENTIFIC FIX: Display scientific analysis for single text
-                                    st.subheader("📊 Scientific Text Analysis")
-                                    
-                                    # Text statistics
-                                    col1, col2, col3, col4 = st.columns(4)
-                                    
-                                    with col1:
-                                        char_count = len(test_text)
-                                        st.metric("Character Count", char_count)
-                                    with col2:
-                                        word_count = len(test_text.split())
-                                        st.metric("Word Count", word_count)
-                                    with col3:
-                                        sentence_count = len(re.split(r'[.!?]+', test_text))
-                                        st.metric("Sentence Count", sentence_count)
-                                    with col4:
-                                        avg_word_length = np.mean([len(word) for word in test_text.split()]) if test_text.split() else 0
-                                        st.metric("Avg Word Length", f"{avg_word_length:.1f}")
-                                    
-                                    # Word frequency analysis for single text
-                                    words = re.findall(r'\b\w+\b', test_text.lower())
-                                    if words:
-                                        word_freq = Counter(words)
-                                        if len(word_freq) > 1:
-                                            st.subheader("📝 Word Frequency Analysis")
-                                            
-                                            word_freq_df = pd.DataFrame(
-                                                word_freq.most_common(min(10, len(word_freq))),
-                                                columns=['Word', 'Frequency']
-                                            )
-                                            
-                                            fig_words = px.bar(
-                                                word_freq_df,
-                                                x='Word',
-                                                y='Frequency',
-                                                title="Word Frequency in Input Text",
-                                                color='Frequency',
-                                                color_continuous_scale='viridis'
-                                            )
-                                            st.plotly_chart(fig_words, use_container_width=True)
-
-                                            try:
-                                                vec = TfidfVectorizer(ngram_range=(2,3), stop_words='english')
-                                                tfidf = vec.fit_transform([test_text])
-                                                sums = tfidf.sum(axis=0).A1
-                                                features = vec.get_feature_names_out()
-                                                idx = np.argsort(sums)[::-1][:5]
-                                                st.markdown("**Key Phrases:**")
-                                                for i in idx:
-                                                    st.write(f"- {features[i]}")
-                                            except Exception:
-                                                pass
-                                    
-                                    # SCIENTIFIC FIX: Display scientific report
-                                    st.subheader("📋 Scientific Analysis Report")
-                                    
-                                    if 'linguistic_analysis' in scientific_report:
-                                        ling = scientific_report['linguistic_analysis']
-                                        st.markdown("**Linguistic Metrics:**")
-                                        st.write(f"• Vocabulary Richness: {ling.get('vocabulary_richness', 0):.3f}")
-                                        st.write(f"• Positive Indicators: {ling.get('positive_indicators', 0)}")
-                                        st.write(f"• Negative Indicators: {ling.get('negative_indicators', 0)}")
-                                        st.write(f"• Sentiment Ratio: {ling.get('sentiment_ratio', 1):.2f}")
-                                    
-                                    if 'sentiment_distribution' in scientific_report:
-                                        sent_dist = scientific_report['sentiment_distribution']
-                                        if 'percentages' in sent_dist:
-                                            st.markdown("**Sentiment Classification:**")
-                                            for sentiment, percentage in sent_dist['percentages'].items():
-                                                st.write(f"• {sentiment.title()}: {percentage:.1f}%")
-                                    
-                                    # Model agreement analysis
-                                    if len(predictions) > 1:
-                                        preds_list = list(predictions.values())
-                                        if len(preds_list) == 2:
-                                            agreement = preds_list[0][0] == preds_list[1][0]
-                                            if agreement:
-                                                st.success("🤝 **Model Agreement**: Both models agree on the prediction!")
-                                            else:
-                                                st.warning("⚡ **Model Disagreement**: Models have different predictions - consider manual review.")
-                                    
-                                    # SCIENTIFIC FIX: Save single text analysis results
-                                    if st.button("💾 Save Analysis Results"):
-                                        try:
-                                            session_dir = get_session_results_dir()
-                                            saved_files = save_scientific_results(
-                                                scientific_report, 
-                                                sentiment_analysis, 
-                                                session_dir, 
-                                                "manual_text_input.txt"
-                                            )
-                                            
-                                            if saved_files:
-                                                st.success("✅ Analysis results saved!")
-                                                for file_type, file_path in saved_files.items():
-                                                    st.write(f"📄 {file_type}: {Path(file_path).name}")
-                                            else:
-                                                st.warning("⚠️ Could not save results")
-                                        except Exception as e:
-                                            st.error(f"Error saving results: {e}")
-                                else:
-                                    st.warning("⚠️ No predictions generated. Check model status.")
-                        except Exception as e:
-                            st.error(f"Prediction error: {e}")
-                    else:
-                        st.error("❌ Embedding model not available!")
-            else:
-                st.info("ℹ️ No trained models available. Train models first or upload a CSV for analysis.")
         
         # Tab 3: SCIENTIFIC FIX - Graphics & Statistics with scientific visualizations
         with tab3:
@@ -2620,53 +2230,6 @@ def main():
                                 main_df, mock_embeddings, stats, predictions, metrics, sentiment_analysis
                             )
                     
-                    # Label distribution if available
-                    label_columns = ['sentiment', 'label', 'class', 'target']
-                    for col in label_columns:
-                        if col in main_df.columns:
-                            st.subheader(f"🏷️ {col.title()} Distribution Analysis")
-                            
-                            label_dist = main_df[col].value_counts()
-                            
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                fig_pie = px.pie(
-                                    values=label_dist.values,
-                                    names=label_dist.index,
-                                    title=f"{col.title()} Distribution (Pie Chart)"
-                                )
-                                st.plotly_chart(fig_pie, use_container_width=True)
-                            
-                            with col2:
-                                fig_bar = px.bar(
-                                    x=label_dist.index,
-                                    y=label_dist.values,
-                                    title=f"{col.title()} Distribution (Bar Chart)",
-                                    labels={'x': col.title(), 'y': 'Count'},
-                                    color=label_dist.values,
-                                    color_continuous_scale='plasma'
-                                )
-                                st.plotly_chart(fig_bar, use_container_width=True)
-                            
-                            with col3:
-                                # Enhanced donut chart
-                                fig_donut = go.Figure(data=[go.Pie(
-                                    labels=label_dist.index,
-                                    values=label_dist.values,
-                                    hole=.4
-                                )])
-                                fig_donut.update_layout(title_text=f"{col.title()} Distribution (Donut)")
-                                st.plotly_chart(fig_donut, use_container_width=True)
-                            
-                            # Statistics for the label distribution
-                            st.markdown(f"**📊 {col.title()} Statistics:**")
-                            total = label_dist.sum()
-                            for idx, (label, count) in enumerate(label_dist.items()):
-                                percentage = (count / total) * 100
-                                st.write(f"• **{label}**: {count:,} samples ({percentage:.1f}%)")
-                            
-                            break
                     
                     # Correlation heatmap for numeric columns
                     numeric_cols = main_df.select_dtypes(include=[np.number]).columns
