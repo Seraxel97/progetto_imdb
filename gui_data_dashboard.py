@@ -64,6 +64,15 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
+from analysis_helpers import (
+    safe_generate_report,
+    extract_top_phrases,
+    generate_topic_summary,
+    contextual_keyword_extraction,
+    generate_wordclouds,
+    normalize_predictions,
+)
+
 # FIXED: Dynamic project root detection
 try:
     CURRENT_FILE = Path(__file__).resolve()
@@ -750,6 +759,21 @@ def generate_scientific_report(df: pd.DataFrame, predictions: Dict = None,
         'term_frequency': {},
         'quality_metrics': {}
     }
+
+    # Normalize prediction arrays to avoid type errors
+    if predictions:
+        clean_preds = {}
+        for name, pred in predictions.items():
+            if pred is None:
+                continue
+            if isinstance(pred, (np.ndarray, pd.Series)):
+                values = np.atleast_1d(pred).astype(int).tolist()
+            elif isinstance(pred, (list, tuple)):
+                values = [int(p) for p in pred]
+            else:
+                values = [int(pred)]
+            clean_preds[name] = values
+        predictions = clean_preds
     
     try:
         # Dataset statistics
@@ -867,17 +891,21 @@ def analyze_sentiment_by_class(texts: List[str], predictions: List[int]) -> Dict
                     'top_words': analysis[sentiment]['word_freq'].most_common(10)
                 }
 
-                # Extract top bigrams/trigrams
+                # Extract advanced features
                 try:
-                    vectorizer = TfidfVectorizer(ngram_range=(2, 3), stop_words='english')
-                    tfidf = vectorizer.fit_transform(texts_list)
-                    sums = tfidf.sum(axis=0).A1
-                    indices = np.argsort(sums)[::-1][:10]
-                    features = vectorizer.get_feature_names_out()
-                    top_phrases = [(features[i], float(sums[i])) for i in indices]
+                    phrases = extract_top_phrases(texts_list)['all']
+                    topics = generate_topic_summary(texts_list)['all']
+                    keywords = contextual_keyword_extraction(texts_list)['all']
+                    wc_img = generate_wordclouds(texts_list).get('all')
                 except Exception:
-                    top_phrases = []
-                analysis[sentiment]['stats']['top_phrases'] = top_phrases
+                    phrases = []
+                    topics = []
+                    keywords = []
+                    wc_img = None
+                analysis[sentiment]['stats']['top_phrases'] = [(p['phrase'], p['count']) for p in phrases]
+                analysis[sentiment]['stats']['topics'] = [(t['topic'], t['count']) for t in topics]
+                analysis[sentiment]['stats']['keywords'] = [(k['word'], k['count']) for k in keywords]
+                analysis[sentiment]['stats']['wordcloud'] = wc_img
             else:
                 analysis[sentiment]['stats'] = {
                     'count': 0,
@@ -1601,7 +1629,12 @@ def create_scientific_visualizations(df, embeddings, stats, predictions, metrics
         topics = stats.get('deep_analysis', {}).get('topic_insights', {})
         if topics and topics.get('key_terms'):
             st.subheader("💡 Key Topics")
-            st.write(', '.join(topics.get('key_terms')[:10]))
+            key_terms = topics.get('key_terms')
+            if key_terms and isinstance(key_terms[0], (list, tuple)):
+                term_list = [t[0] for t in key_terms]
+            else:
+                term_list = key_terms
+            st.write(', '.join([str(t) for t in term_list[:10]]))
         
         # Word Cloud by Sentiment Class
         if WORDCLOUD_AVAILABLE and sentiment_analysis and text_col:
@@ -2392,7 +2425,7 @@ def main():
                                 deep_analysis = enhanced_deep_text_analysis(temp_df, 'text')
                                 
                                 # SCIENTIFIC FIX: Generate scientific report for single text
-                                scientific_report = generate_scientific_report(temp_df, predictions, metrics, deep_analysis)
+                                scientific_report = safe_generate_report(temp_df, predictions, metrics, deep_analysis)
                                 
                                 # SCIENTIFIC FIX: Analyze sentiment patterns for single text
                                 if predictions:
@@ -2727,7 +2760,7 @@ def main():
                         df = main_df
                         with st.spinner("🔄 Performing comprehensive scientific analysis..."):
                             deep_analysis = enhanced_deep_text_analysis(df, text_col)
-                            scientific_report = generate_scientific_report(df, {}, {}, deep_analysis)
+                            scientific_report = safe_generate_report(df, {}, {}, deep_analysis)
                             sentiment_analysis = {}
                     
                     # SCIENTIFIC FIX: Display scientific metrics instead of narratives
@@ -2861,7 +2894,7 @@ def main():
                     
                     ### 📊 To Enable Scientific Analysis:
                     1. Upload a CSV file with text data
-                    2. Run "Quick Analysis" in the CSV Analysis tab
+                    2. Run "Smart CSV Analysis" in the CSV Analysis tab
                     3. Return here to see comprehensive scientific insights
                     """)
             except Exception as e:
@@ -2903,14 +2936,14 @@ def main():
 
                 with col1:
                     quick_analysis = st.button(
-                        "⚡ Quick Analysis",
+                        "🤖 Smart CSV Analysis",
                         type="primary",
-                        help="Fast analysis with predictions and insights"
+                        help="Data exploration with predictions and insights"
                     )
 
                 # Analysis execution
                 if quick_analysis:
-                    analysis_type = "quick"
+                    analysis_type = "smart"
                     
                     try:
                         with st.spinner(f"🔄 Performing {analysis_type} analysis..."):
@@ -2975,7 +3008,7 @@ def main():
                                         
                                         # SCIENTIFIC FIX: Generate comprehensive scientific analysis
                                         deep_analysis_data = stats.get('deep_analysis', {})
-                                        scientific_report = generate_scientific_report(df, predictions, metrics, deep_analysis_data)
+                                        scientific_report = safe_generate_report(df, predictions, metrics, deep_analysis_data)
                                         
                                         # SCIENTIFIC FIX: Analyze sentiment patterns by class
                                         all_predictions = []
@@ -3074,7 +3107,7 @@ def main():
                                 try:
                                     # SCIENTIFIC FIX: Generate basic scientific analysis without predictions
                                     deep_analysis_data = stats.get('deep_analysis', {})
-                                    scientific_report = generate_scientific_report(df, {}, {}, deep_analysis_data)
+                                    scientific_report = safe_generate_report(df, {}, {}, deep_analysis_data)
                                     
                                     # Store scientific analysis
                                     st.session_state['current_analysis']['scientific_report'] = scientific_report
@@ -3131,10 +3164,10 @@ def main():
                 
                 Upload a CSV file to access these powerful analysis capabilities:
                 
-                **⚡ Quick Analysis**
-                - Fast text processing and embedding generation
+                **🤖 Smart CSV Analysis**
+                - Text processing and embedding generation
                 - Immediate sentiment predictions (if models available)
-                - Basic statistical analysis and insights
+                - Statistical insights and visual summaries
                 - Quick visualization generation
                 
                 
@@ -3404,7 +3437,7 @@ def main():
                 **🔄 Scientific Analysis Path:**
                 1. 📂 Go to **'CSV Analysis'** tab
                 2. 📁 Upload your CSV file
-                3. ⚡ Click **'Quick Analysis'**
+                3. 🤖 Click **'Smart CSV Analysis'**
                 4. 🔄 Return here to download scientific results
                 
                 **🚀 Complete Scientific Pipeline:**
