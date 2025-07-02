@@ -94,29 +94,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import centralized configuration with enhanced fallback
-try:
-    from config_constants import (
-        DEFAULT_EMBEDDING_MODEL, 
-        AVAILABLE_EMBEDDING_MODELS, 
-        DEFAULT_TRAIN_PARAMS
-    )
-    logger.info("✅ Loaded configuration from config_constants")
-except ImportError:
-    logger.warning("⚠️ Using fallback configuration (config_constants not found)")
-    DEFAULT_EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
-    AVAILABLE_EMBEDDING_MODELS = [
-        'all-MiniLM-L6-v2', 
-        'all-mpnet-base-v2', 
-        'paraphrase-MiniLM-L6-v2',
-        'all-MiniLM-L12-v2',
-        'paraphrase-multilingual-MiniLM-L12-v2'
-    ]
-    DEFAULT_TRAIN_PARAMS = {
-        'embedding_batch_size': 32,
-        'max_sequence_length': 512,
-        'embedding_cache_size': 1000
-    }
+# Default configuration values
+# The original version attempted to import these from ``config_constants`` but
+# that module does not exist in this repository.  This caused the script to
+# fail at runtime.  We now define sensible defaults directly here so the
+# embedding step always runs.
+DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+AVAILABLE_EMBEDDING_MODELS = [
+    "all-MiniLM-L6-v2",
+    "all-mpnet-base-v2",
+    "paraphrase-MiniLM-L6-v2",
+    "all-MiniLM-L12-v2",
+    "paraphrase-multilingual-MiniLM-L12-v2",
+]
+DEFAULT_TRAIN_PARAMS = {
+    "embedding_batch_size": 32,
+    "max_sequence_length": 512,
+    "embedding_cache_size": 1000,
+}
+
+logger.info("✅ Using internal default configuration values")
 
 class AdvancedEmbeddingGenerator:
     """

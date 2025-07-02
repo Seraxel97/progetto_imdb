@@ -70,7 +70,13 @@ def load_data(embeddings_dir, logger):
     logger.info("Caricamento dati...")
     
     embeddings_dir = Path(embeddings_dir)
-    
+
+    # Debug: show available files for troubleshooting
+    try:
+        logger.info(f"Files in embeddings dir: {os.listdir(embeddings_dir)}")
+    except Exception:
+        logger.warning("Could not list embeddings directory contents")
+
     # Verifica che i file esistano
     required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
     missing_files = []

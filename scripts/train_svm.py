@@ -73,8 +73,12 @@ def load_embeddings_data(embeddings_dir, logger):
         dict: Dictionary containing loaded data splits
     """
     embeddings_dir = Path(embeddings_dir)
-    
+
     logger.info(f"Loading embeddings from: {embeddings_dir}")
+    try:
+        logger.info(f"Files in embeddings dir: {os.listdir(embeddings_dir)}")
+    except Exception:
+        logger.warning("Could not list embeddings directory contents")
     
     # Check for required files
     required_files = {
