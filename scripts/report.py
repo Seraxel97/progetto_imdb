@@ -183,6 +183,12 @@ class ModelEvaluator:
     
     def _evaluate_svm_direct(self, model_path, X_test, y_test):
         """Direct SVM evaluation using embeddings"""
+        model_path = Path(model_path)
+
+        if not model_path.exists():
+            self.logger.error(f"Model not found: {model_path}")
+            raise RuntimeError(f"Model not found: {model_path}")
+
         try:
             self.logger.info("Loading SVM model package...")
             
@@ -274,6 +280,12 @@ class ModelEvaluator:
     
     def _evaluate_mlp_direct(self, model_path, X_test, y_test):
         """Direct MLP evaluation using embeddings and PyTorch model"""
+        model_path = Path(model_path)
+
+        if not model_path.exists():
+            self.logger.error(f"Model not found: {model_path}")
+            raise RuntimeError(f"Model not found: {model_path}")
+
         try:
             self.logger.info("Loading MLP model...")
             
