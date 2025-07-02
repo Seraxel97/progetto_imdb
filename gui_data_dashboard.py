@@ -301,43 +301,24 @@ def safe_convert_for_json(obj):
         return obj
 
 def fix_sentiment_labels(df, sentiment_column):
-    """
-    FIXED: Risolve il problema di conversione delle etichette sentiment da stringa a int
-    """
+    """Legacy label fixing function (deprecated)."""
+    return fix_sentiment_labels_corrected(df, sentiment_column)
+
+def fix_sentiment_labels_corrected(df, sentiment_column):
+    """Converti in modo robusto le etichette di sentiment a interi."""
     try:
-        # Mappa etichette stringa a numeri
         label_map = {
             "negative": 0, "negativo": 0, "neg": 0, "0": 0,
             "positive": 1, "positivo": 1, "pos": 1, "1": 1,
             "neutral": 2, "neutro": 2, "neu": 2, "2": 2
         }
-        
-        # Converti a stringa prima del mapping
-        df[sentiment_column] = df[sentiment_column].astype(str).str.lower().str.strip()
-        
-        # Applica la mappatura
-        df["label_int"] = df[sentiment_column].map(label_map)
-        
-        # Gestisci valori non mappati
-        unmapped_mask = df["label_int"].isna()
-        if unmapped_mask.any():
-            # Prova a convertire direttamente i numeri
-            try:
-                df.loc[unmapped_mask, "label_int"] = pd.to_numeric(df.loc[unmapped_mask, sentiment_column], errors='coerce')
-            except:
-                pass
-            
-            # Imposta valori di default per i rimanenti
-            df["label_int"] = df["label_int"].fillna(2)  # Default a neutral
-        
-        # Assicurati che sia int
-        df["label_int"] = df["label_int"].astype(int)
-        
-        return df["label_int"].tolist()
-        
+
+        labels = df[sentiment_column].astype(str).str.lower().str.strip().map(label_map)
+        labels = pd.to_numeric(labels, errors="coerce").fillna(2).astype(int)
+        return labels.tolist()
+
     except Exception as e:
-        st.warning(f"Error fixing sentiment labels: {e}")
-        # Fallback: restituisci etichette neutre
+        st.warning(f"Sentiment label conversion failed: {e}")
         return [2] * len(df)
 
 def comprehensive_text_analysis(df: pd.DataFrame, text_column: str) -> Dict:
@@ -776,7 +757,7 @@ def analyze_uploaded_csv(uploaded_file, embedding_model):
             if col in df.columns:
                 try:
                     # Usa la funzione fix per gestire le etichette
-                    fixed_labels = fix_sentiment_labels(df, col)
+                    fixed_labels = fix_sentiment_labels_corrected(df, col)
                     stats['sentiment_distribution'] = safe_convert_for_json(pd.Series(fixed_labels).value_counts().to_dict())
                     stats['sentiment_column'] = col
                     stats['fixed_labels'] = fixed_labels
@@ -1613,6 +1594,20 @@ def main():
                             
                             # Analisi comprensiva
                             comprehensive_analysis = comprehensive_text_analysis(main_df, text_col)
+
+                            # Eventuale gestione etichette sentiment originali
+                            sentiment_columns = ['sentiment', 'label', 'class', 'target', 'rating']
+                            fixed_labels = None
+                            sent_col = None
+                            for col in sentiment_columns:
+                                if col in main_df.columns:
+                                    try:
+                                        fixed_labels = fix_sentiment_labels_corrected(main_df, col)
+                                        sent_col = col
+                                        break
+                                    except Exception as e:
+                                        st.warning(f"Error processing sentiment column {col}: {e}")
+                                        continue
                             
                             # Analisi per classe sentiment se predizioni disponibili
                             sentiment_analysis = {}
@@ -1631,6 +1626,11 @@ def main():
                                 'text_column': text_col,
                                 'comprehensive_analysis': comprehensive_analysis
                             }
+
+                            if fixed_labels is not None and sent_col:
+                                stats['sentiment_distribution'] = safe_convert_for_json(pd.Series(fixed_labels).value_counts().to_dict())
+                                stats['sentiment_column'] = sent_col
+                                stats['fixed_labels'] = fixed_labels
                             
                             # Salva in sessione
                             st.session_state['current_analysis'] = {
