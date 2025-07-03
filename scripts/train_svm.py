@@ -745,10 +745,10 @@ Examples:
         """
     )
     
-    # Required arguments
-    parser.add_argument("--embeddings-dir", type=str, required=True,
+    # Required arguments (may be None when --auto-default is used)
+    parser.add_argument("--embeddings-dir", type=str, default=None,
                        help="Directory containing embedding files (.npy)")
-    parser.add_argument("--output-dir", type=str, required=True,
+    parser.add_argument("--output-dir", type=str, default=None,
                        help="Directory to save model, plots, and metrics")
     
     # Training modes
@@ -774,6 +774,8 @@ Examples:
     # Logging options
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: output-dir/logs)")
+    parser.add_argument("--auto-default", action="store_true",
+                       help="Use default paths if none are provided")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress output except errors")
     
@@ -782,6 +784,20 @@ Examples:
 def main():
     """Main function for CLI usage"""
     args = parse_arguments()
+
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+    if args.auto_default:
+        if not args.embeddings_dir:
+            args.embeddings_dir = str(PROJECT_ROOT / "data" / "embeddings")
+            print(f"[⚠️ Fallback] Using default embeddings dir: {args.embeddings_dir}")
+        if not args.output_dir:
+            args.output_dir = str(PROJECT_ROOT / "results")
+            print(f"[⚠️ Fallback] Using default output dir: {args.output_dir}")
+
+    if not args.embeddings_dir or not args.output_dir:
+        print("❌ Missing required arguments. Provide --embeddings-dir and --output-dir or use --auto-default")
+        sys.exit(1)
     
     # Setup logging
     log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
