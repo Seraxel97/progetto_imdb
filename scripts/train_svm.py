@@ -775,7 +775,7 @@ Examples:
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: output-dir/logs)")
     parser.add_argument("--auto-default", action="store_true",
-                       help="Use default paths if none are provided")
+                       help="Use default embeddings and results paths")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress output except errors")
     
@@ -785,18 +785,21 @@ def main():
     """Main function for CLI usage"""
     args = parse_arguments()
 
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    project_root = Path(__file__).resolve().parents[1]
 
     if args.auto_default:
         if not args.embeddings_dir:
-            args.embeddings_dir = str(PROJECT_ROOT / "data" / "embeddings")
-            print(f"[⚠️ Fallback] Using default embeddings dir: {args.embeddings_dir}")
+            default_embed = project_root / "data" / "embeddings"
+            print(f"[⚠️] No embeddings-dir provided. Using default: {default_embed}")
+            args.embeddings_dir = str(default_embed)
+
         if not args.output_dir:
-            args.output_dir = str(PROJECT_ROOT / "results")
-            print(f"[⚠️ Fallback] Using default output dir: {args.output_dir}")
+            default_results = project_root / "results"
+            print(f"[⚠️] No output-dir provided. Using default: {default_results}")
+            args.output_dir = str(default_results)
 
     if not args.embeddings_dir or not args.output_dir:
-        print("❌ Missing required arguments. Provide --embeddings-dir and --output-dir or use --auto-default")
+        print("❌ Please provide --embeddings-dir and --output-dir, or use --auto-default for fallback.")
         sys.exit(1)
     
     # Setup logging
