@@ -91,6 +91,86 @@ def setup_logging(log_dir):
     
     return logging.getLogger(__name__)
 
+def find_embedding_files(embeddings_dir=None, session_dir=None, logger=None):
+    """Trova i file di embedding in modo intelligente"""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+        
+    # Lista dei possibili percorsi
+    search_paths = []
+    
+    # 1. Percorso specificato esplicitamente
+    if embeddings_dir:
+        search_paths.append(Path(embeddings_dir))
+    
+    # 2. Percorso nella sessione specifica
+    if session_dir:
+        search_paths.append(Path(session_dir) / "embeddings")
+    
+    # 3. Percorsi di default
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent
+    
+    search_paths.extend([
+        project_root / "data" / "embeddings",
+        project_root / "results" / "embeddings",
+        Path("data") / "embeddings",
+        Path("results") / "embeddings"
+    ])
+    
+    # Cerca nei percorsi più recenti nelle sessioni
+    results_dir = project_root / "results"
+    if results_dir.exists():
+        session_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("session_")]
+        session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)  # Più recenti prima
+        
+        for session_dir in session_dirs[:3]:  # Controlla le 3 sessioni più recenti
+            search_paths.append(session_dir / "embeddings")
+    
+    required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy", "X_test.npy", "y_test.npy"]
+    
+    logger.info(f"Cercando file di embedding in {len(search_paths)} percorsi...")
+    
+    for path in search_paths:
+        logger.info(f"Controllo: {path}")
+        if path.exists():
+            missing_files = []
+            for file in required_files:
+                if not (path / file).exists():
+                    missing_files.append(file)
+            
+            if not missing_files:
+                logger.info(f"✅ Tutti i file trovati in: {path}")
+                return path
+            else:
+                logger.info(f"❌ File mancanti in {path}: {missing_files}")
+        else:
+            logger.info(f"❌ Percorso non esistente: {path}")
+    
+    raise FileNotFoundError(
+        f"File di embedding non trovati. Cercati in:\n" + 
+        "\n".join(f"  - {p}" for p in search_paths) +
+        f"\nFile richiesti: {required_files}"
+    )
+
+def determine_output_dir(output_dir=None, session_dir=None):
+    """Determina la directory di output in modo intelligente"""
+    if output_dir:
+        return Path(output_dir)
+    
+    if session_dir:
+        return Path(session_dir)
+    
+    # Crea una nuova sessione se non specificata
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent
+    results_dir = project_root / "results"
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = results_dir / f"session_{timestamp}"
+    
+    return session_dir
+
 def load_embeddings_data(embeddings_dir, logger):
     """
     Load training, validation, and test embeddings with comprehensive validation
@@ -591,6 +671,32 @@ Parameters:
             f.write(f"\nConfusion Matrix:\n")
             f.write(str(np.array(model_package['confusion_matrix'])))
         
+        # 7. Salva GUI status file per integrazione
+        gui_status_file = output_dir / "svm_training_status.json"
+        gui_status = {
+            'status': 'completed',
+            'timestamp': datetime.now().isoformat(),
+            'model_type': 'SVM',
+            'performance': {
+                'accuracy': float(model_package['validation_accuracy']),
+                'f1_score': float(model_package['validation_f1']),
+                'training_time': float(model_package['training_time']),
+                'training_samples': int(model_package['training_samples'])
+            },
+            'files': {
+                'model': 'models/svm_model.pkl',
+                'confusion_matrix': 'plots/svm_confusion_matrix.png',
+                'performance_metrics': 'plots/svm_performance_metrics.png',
+                'training_summary': 'plots/svm_training_summary.png',
+                'classification_report': 'reports/svm_classification_report.json',
+                'metrics': 'reports/svm_metrics.json',
+                'summary': 'reports/svm_training_summary.txt'
+            }
+        }
+        
+        with open(gui_status_file, 'w') as f:
+            json.dump(gui_status, f, indent=2)
+        
         logger.info(f"Plots and reports saved to: {output_dir}")
         
         return {
@@ -600,7 +706,8 @@ Parameters:
             'training_summary_plot': str(summary_plot_path),
             'classification_report_csv': str(class_report_csv),
             'classification_report_json': str(class_report_json),
-            'summary_file': str(summary_file)
+            'summary_file': str(summary_file),
+            'gui_status_file': str(gui_status_file)
         }
         
     except Exception as e:
@@ -670,24 +777,40 @@ def save_model_package(model_package, output_dir, logger):
         logger.error(f"Error saving model package: {str(e)}")
         raise
 
-def train_svm_pipeline(embeddings_dir, output_dir, fast_mode=False, grid_search=False, 
-                      C=1.0, max_iter=10000, logger=None):
+def train_svm_pipeline(embeddings_dir=None, output_dir=None, fast_mode=False, grid_search=False, 
+                      C=1.0, max_iter=10000, logger=None, session_dir=None):
     """
-    Main training pipeline for SVM
+    Main training pipeline for SVM con parametri flessibili
     
     Args:
-        embeddings_dir (str): Directory containing embedding files
-        output_dir (str): Directory to save results
+        embeddings_dir (str): Directory containing embedding files (auto-detect se None)
+        output_dir (str): Directory to save results (auto-create se None)
         fast_mode (bool): Use reduced dataset for ultra-fast training
         grid_search (bool): Use GridSearchCV for hyperparameter tuning
         C (float): SVM regularization parameter
         max_iter (int): Maximum iterations
         logger: Logger instance
+        session_dir (str): Session directory per integrazione pipeline
     
     Returns:
         dict: Training results and saved file paths
     """
+    if logger is None:
+        # Setup logging temporaneo se non fornito
+        temp_log_dir = Path("logs") if not output_dir else Path(output_dir) / "logs"
+        logger = setup_logging(temp_log_dir)
+    
     try:
+        # Determina percorsi in modo intelligente
+        if not embeddings_dir:
+            embeddings_dir = find_embedding_files(session_dir=session_dir, logger=logger)
+        else:
+            # Verifica che il percorso specificato sia valido
+            embeddings_dir = find_embedding_files(embeddings_dir=embeddings_dir, logger=logger)
+        
+        if not output_dir:
+            output_dir = determine_output_dir(session_dir=session_dir)
+        
         # Create output directory structure
         output_dir = Path(output_dir)
         
@@ -754,12 +877,58 @@ def train_svm_pipeline(embeddings_dir, output_dir, fast_mode=False, grid_search=
                 'validation_f1': model_package['validation_f1'],
                 'training_time': model_package['training_time']
             },
-            'saved_files': all_saved_files
+            'saved_files': all_saved_files,
+            'output_dir': str(output_dir),
+            'embeddings_dir': str(embeddings_dir)
         }
         
     except Exception as e:
         if logger:
             logger.error(f"Error in SVM training pipeline: {str(e)}")
+        # Salva status di errore per la GUI
+        if output_dir:
+            error_status = {
+                'status': 'error',
+                'timestamp': datetime.now().isoformat(),
+                'error_message': str(e),
+                'model_type': 'SVM'
+            }
+            try:
+                with open(Path(output_dir) / "svm_training_status.json", 'w') as f:
+                    json.dump(error_status, f, indent=2)
+            except:
+                pass
+        raise
+
+def run_training_auto_mode(session_dir=None, fast_mode=True, **kwargs):
+    """Modalità automatica per integrazione con altri script"""
+    # Setup logging minimal per auto mode
+    if session_dir:
+        log_dir = Path(session_dir) / "logs"
+    else:
+        log_dir = Path("logs")
+    
+    logger = setup_logging(log_dir)
+    
+    logger.info("🤖 Modalità automatica SVM training")
+    
+    # Parametri di default ottimizzati per auto mode
+    default_params = {
+        'fast_mode': fast_mode,  # Fast di default
+        'grid_search': kwargs.get('grid_search', False),
+        'C': kwargs.get('C', 1.0),
+        'max_iter': kwargs.get('max_iter', 10000),
+        'session_dir': session_dir
+    }
+    
+    logger.info(f"Parametri auto mode: {default_params}")
+    
+    try:
+        result = train_svm_pipeline(logger=logger, **default_params)
+        logger.info("✅ SVM training automatico completato!")
+        return result
+    except Exception as e:
+        logger.error(f"❌ Errore in modalità automatica: {str(e)}")
         raise
 
 def parse_arguments():
@@ -776,11 +945,13 @@ Examples:
         """
     )
     
-    # Required arguments (auto-defaults when not provided)
+    # Optional arguments (tutti opzionali per flessibilità)
     parser.add_argument("--embeddings-dir", type=str, default=None,
-                       help="Directory containing embedding files (.npy) [default: data/embeddings]")
+                       help="Directory containing embedding files (.npy). If not specified, will search automatically.")
     parser.add_argument("--output-dir", type=str, default=None,
-                       help="Directory to save model, plots, and metrics [default: results]")
+                       help="Directory to save model, plots, and metrics. If not specified, will create session directory.")
+    parser.add_argument("--session-dir", type=str, default=None,
+                       help="Session directory (used for automatic path detection)")
     
     # Training modes
     parser.add_argument("--fast", action="store_true",
@@ -802,6 +973,10 @@ Examples:
     parser.add_argument("--batch-size", type=int, default=None,
                        help="Not used for SVM (for compatibility)")
     
+    # Modalità speciali
+    parser.add_argument('--auto-mode', action='store_true',
+                       help='Run in automatic mode with default parameters')
+    
     # Logging options
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: output-dir/logs)")
@@ -814,6 +989,16 @@ def main():
     """Main function for CLI usage"""
     args = parse_arguments()
 
+    # Modalità automatica
+    if args.auto_mode:
+        return run_training_auto_mode(
+            session_dir=args.session_dir,
+            fast_mode=args.fast,
+            grid_search=args.grid_search,
+            C=args.C,
+            max_iter=args.max_iter
+        )
+
     # Detect project root dynamically
     project_root = Path(__file__).resolve().parents[1]
     no_args_provided = len(sys.argv) == 1
@@ -822,7 +1007,7 @@ def main():
     embeddings_provided = args.embeddings_dir is not None
     output_provided = args.output_dir is not None
 
-    # Apply defaults automatically
+    # Apply defaults automatically (adesso non sono più required, quindi è safe)
     if not args.embeddings_dir:
         args.embeddings_dir = str(project_root / "data" / "embeddings")
 
@@ -834,7 +1019,11 @@ def main():
         args.fast = True
 
     # Setup logging
-    log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
+    if args.output_dir:
+        log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
+    else:
+        log_dir = args.log_dir if args.log_dir else Path("logs")
+    
     logger = setup_logging(log_dir)
 
     # Show appropriate warning messages
@@ -857,11 +1046,6 @@ def main():
         logger.warning("--batch-size parameter is not used for SVM training")
     
     try:
-        # Verify embeddings directory exists
-        embeddings_dir = Path(args.embeddings_dir)
-        if not embeddings_dir.exists():
-            raise FileNotFoundError(f"Embeddings directory not found: {embeddings_dir}\n💡 Generate embeddings first: python scripts/embed_dataset.py")
-        
         # Run training pipeline
         result = train_svm_pipeline(
             embeddings_dir=args.embeddings_dir,
@@ -870,7 +1054,8 @@ def main():
             grid_search=args.grid_search,
             C=args.C,
             max_iter=args.max_iter,
-            logger=logger
+            logger=logger,
+            session_dir=args.session_dir
         )
         
         logger.info("=" * 60)
@@ -880,13 +1065,34 @@ def main():
         logger.info(f"Accuracy: {result['performance']['validation_accuracy']:.4f}")
         logger.info(f"F1-Score: {result['performance']['validation_f1']:.4f}")
         logger.info(f"Training time: {result['performance']['training_time']:.2f}s")
+        logger.info(f"Output directory: {result['output_dir']}")
         logger.info(f"Files saved: {list(result['saved_files'].keys())}")
         
-        return 0
+        return result
         
     except Exception as e:
         logger.error(f"Error during SVM training: {str(e)}")
-        return 1
+        raise
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        # Controlla se è chiamato senza argomenti (modalità legacy)
+        if len(sys.argv) == 1:
+            print("🚀 Avvio SVM training in modalità automatica...")
+            print(f"Working directory: {os.getcwd()}")
+            print(f"Script location: {__file__}")
+            
+            result = run_training_auto_mode(fast_mode=True)
+            print(f"\n✅ Training completato! Modello salvato in: {result['model_path']}")
+            print(f"📊 Accuracy finale: {result['performance']['validation_accuracy']:.4f}")
+            print(f"📊 F1-Score finale: {result['performance']['validation_f1']:.4f}")
+        else:
+            # Usa il parser per CLI
+            result = main()
+            
+    except KeyboardInterrupt:
+        print("\n⏹️ Training interrotto dall'utente")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Errore: {str(e)}")
+        sys.exit(1)
