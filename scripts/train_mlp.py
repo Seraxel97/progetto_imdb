@@ -65,6 +65,86 @@ class HateSpeechMLP(nn.Module):
     def forward(self, x):
         return self.network(x)
 
+def find_embedding_files(embeddings_dir=None, session_dir=None, logger=None):
+    """Trova i file di embedding in modo intelligente"""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+        
+    # Lista dei possibili percorsi
+    search_paths = []
+    
+    # 1. Percorso specificato esplicitamente
+    if embeddings_dir:
+        search_paths.append(Path(embeddings_dir))
+    
+    # 2. Percorso nella sessione specifica
+    if session_dir:
+        search_paths.append(Path(session_dir) / "embeddings")
+    
+    # 3. Percorsi di default
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent
+    
+    search_paths.extend([
+        project_root / "data" / "embeddings",
+        project_root / "results" / "embeddings",
+        Path("data") / "embeddings",
+        Path("results") / "embeddings"
+    ])
+    
+    # Cerca nei percorsi più recenti nelle sessioni
+    results_dir = project_root / "results"
+    if results_dir.exists():
+        session_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("session_")]
+        session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)  # Più recenti prima
+        
+        for session_dir in session_dirs[:3]:  # Controlla le 3 sessioni più recenti
+            search_paths.append(session_dir / "embeddings")
+    
+    required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
+    
+    logger.info(f"Cercando file di embedding in {len(search_paths)} percorsi...")
+    
+    for path in search_paths:
+        logger.info(f"Controllo: {path}")
+        if path.exists():
+            missing_files = []
+            for file in required_files:
+                if not (path / file).exists():
+                    missing_files.append(file)
+            
+            if not missing_files:
+                logger.info(f"✅ Tutti i file trovati in: {path}")
+                return path
+            else:
+                logger.info(f"❌ File mancanti in {path}: {missing_files}")
+        else:
+            logger.info(f"❌ Percorso non esistente: {path}")
+    
+    raise FileNotFoundError(
+        f"File di embedding non trovati. Cercati in:\n" + 
+        "\n".join(f"  - {p}" for p in search_paths) +
+        f"\nFile richiesti: {required_files}"
+    )
+
+def determine_output_dir(output_dir=None, session_dir=None):
+    """Determina la directory di output in modo intelligente"""
+    if output_dir:
+        return Path(output_dir)
+    
+    if session_dir:
+        return Path(session_dir)
+    
+    # Crea una nuova sessione se non specificata
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent
+    results_dir = project_root / "results"
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = results_dir / f"session_{timestamp}"
+    
+    return session_dir
+
 def load_data(embeddings_dir, logger):
     """Carica i dati di embedding preprocessati"""
     logger.info("Caricamento dati...")
@@ -317,6 +397,31 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
             f.write("\nConfusion Matrix:\n")
             f.write(str(cm))
         
+        # 6. Salva GUI status file per integrazione
+        gui_status_file = output_dir / "mlp_training_status.json"
+        gui_status = {
+            'status': 'completed',
+            'timestamp': datetime.now().isoformat(),
+            'model_type': 'MLP',
+            'performance': {
+                'accuracy': float(accuracy_score(final_targets, final_predictions)),
+                'final_val_accuracy': float(history['val_accuracies'][-1]),
+                'best_val_accuracy': float(max(history['val_accuracies'])),
+                'total_epochs': len(history['train_losses'])
+            },
+            'files': {
+                'model': 'models/mlp_model.pth',
+                'confusion_matrix': 'plots/mlp_confusion_matrix.png',
+                'training_history': 'plots/mlp_training_history.png',
+                'classification_report': 'reports/mlp_classification_report.json',
+                'metrics': 'reports/mlp_metrics.json',
+                'summary': 'reports/mlp_training_summary.txt'
+            }
+        }
+        
+        with open(gui_status_file, 'w') as f:
+            json.dump(gui_status, f, indent=2)
+        
         logger.info(f"Grafici e report salvati in: {output_dir}")
         
         return {
@@ -324,25 +429,39 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
             'confusion_matrix_plot': str(cm_plot_path),
             'training_history_plot': str(history_plot_path),
             'classification_report': str(class_report_file),
-            'summary_file': str(summary_file)
+            'summary_file': str(summary_file),
+            'gui_status_file': str(gui_status_file)
         }
         
     except Exception as e:
         logger.error(f"Errore nel salvataggio di metriche e grafici: {str(e)}")
         raise
 
-def train_model(embeddings_dir, output_dir, epochs=100, lr=0.001, batch_size=32, logger=None):
-    """Funzione principale di training"""
+def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batch_size=32, logger=None, session_dir=None):
+    """Funzione principale di training con parametri flessibili"""
     if logger is None:
-        logger = logging.getLogger(__name__)
+        # Setup logging temporaneo se non fornito
+        temp_log_dir = Path("logs") if not output_dir else Path(output_dir) / "logs"
+        logger = setup_logging(temp_log_dir)
     
     try:
-        # Crea directory di output
+        # Determina percorsi in modo intelligente
+        if not embeddings_dir:
+            embeddings_dir = find_embedding_files(session_dir=session_dir, logger=logger)
+        else:
+            # Verifica che il percorso specificato sia valido
+            embeddings_dir = find_embedding_files(embeddings_dir=embeddings_dir, logger=logger)
+        
+        if not output_dir:
+            output_dir = determine_output_dir(session_dir=session_dir)
+        
         output_dir = Path(output_dir)
         models_dir = output_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"Usando device: {device}")
+        logger.info(f"Directory embeddings: {embeddings_dir}")
+        logger.info(f"Directory output: {output_dir}")
         logger.info(f"Parametri training: epochs={epochs}, lr={lr}, batch_size={batch_size}")
         
         # Hyperparameters
@@ -459,7 +578,9 @@ def train_model(embeddings_dir, output_dir, epochs=100, lr=0.001, batch_size=32,
                 'final_val_accuracy': final_val_acc,
                 'best_val_loss': best_val_loss
             },
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'embeddings_dir': str(embeddings_dir),
+            'output_dir': str(output_dir)
         }
         
         metadata_file = models_dir / "mlp_metadata.json"
@@ -485,11 +606,26 @@ def train_model(embeddings_dir, output_dir, epochs=100, lr=0.001, batch_size=32,
             'model_path': str(models_dir / "mlp_model.pth"),
             'metadata_path': str(metadata_file),
             'performance': metadata['performance'],
-            'saved_files': saved_files
+            'saved_files': saved_files,
+            'output_dir': str(output_dir),
+            'embeddings_dir': str(embeddings_dir)
         }
         
     except Exception as e:
         logger.error(f"Errore durante il training: {str(e)}")
+        # Salva status di errore per la GUI
+        if output_dir:
+            error_status = {
+                'status': 'error',
+                'timestamp': datetime.now().isoformat(),
+                'error_message': str(e),
+                'model_type': 'MLP'
+            }
+            try:
+                with open(Path(output_dir) / "mlp_training_status.json", 'w') as f:
+                    json.dump(error_status, f, indent=2)
+            except:
+                pass
         raise
 
 def load_trained_model(model_path):
@@ -526,13 +662,15 @@ def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis')
     
-    # Required arguments
-    parser.add_argument('--embeddings-dir', type=str, required=True,
-                       help='Directory containing embedding files (.npy)')
-    parser.add_argument('--output-dir', type=str, required=True,
-                       help='Directory to save model, plots, and metrics')
+    # Optional arguments (tutti opzionali per flessibilità)
+    parser.add_argument('--embeddings-dir', type=str, default=None,
+                       help='Directory containing embedding files (.npy). If not specified, will search automatically.')
+    parser.add_argument('--output-dir', type=str, default=None,
+                       help='Directory to save model, plots, and metrics. If not specified, will create session directory.')
+    parser.add_argument('--session-dir', type=str, default=None,
+                       help='Session directory (used for automatic path detection)')
     
-    # Optional arguments
+    # Training parameters
     parser.add_argument('--epochs', type=int, default=100,
                        help='Number of training epochs (default: 100)')
     parser.add_argument('--lr', type=float, default=0.001,
@@ -542,32 +680,75 @@ def parse_arguments():
     parser.add_argument('--log-dir', type=str, default=None,
                        help='Directory for log files (default: output-dir/logs)')
     
+    # Modalità speciali
+    parser.add_argument('--auto-mode', action='store_true',
+                       help='Run in automatic mode with default parameters')
+    
     return parser.parse_args()
+
+def run_training_auto_mode(session_dir=None, **kwargs):
+    """Modalità automatica per integrazione con altri script"""
+    # Setup logging minimal per auto mode
+    if session_dir:
+        log_dir = Path(session_dir) / "logs"
+    else:
+        log_dir = Path("logs")
+    
+    logger = setup_logging(log_dir)
+    
+    logger.info("🤖 Modalità automatica MLP training")
+    
+    # Parametri di default ottimizzati per auto mode
+    default_params = {
+        'epochs': kwargs.get('epochs', 50),  # Meno epoch per speed
+        'lr': kwargs.get('lr', 0.001),
+        'batch_size': kwargs.get('batch_size', 32),
+        'session_dir': session_dir
+    }
+    
+    logger.info(f"Parametri auto mode: {default_params}")
+    
+    try:
+        result = train_model(logger=logger, **default_params)
+        logger.info("✅ Training automatico completato!")
+        return result
+    except Exception as e:
+        logger.error(f"❌ Errore in modalità automatica: {str(e)}")
+        raise
 
 def main():
     """Main function for CLI usage"""
     args = parse_arguments()
     
+    # Modalità automatica
+    if args.auto_mode:
+        return run_training_auto_mode(
+            session_dir=args.session_dir,
+            epochs=args.epochs,
+            lr=args.lr,
+            batch_size=args.batch_size
+        )
+    
     # Setup logging
-    log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
+    if args.output_dir:
+        log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
+    else:
+        log_dir = args.log_dir if args.log_dir else Path("logs")
+    
     logger = setup_logging(log_dir)
     
     logger.info("=" * 60)
     logger.info("MLP TRAINING STARTED")
     logger.info("=" * 60)
-    logger.info(f"Embeddings dir: {args.embeddings_dir}")
-    logger.info(f"Output dir: {args.output_dir}")
+    logger.info(f"Embeddings dir: {args.embeddings_dir or 'Auto-detect'}")
+    logger.info(f"Output dir: {args.output_dir or 'Auto-create'}")
+    logger.info(f"Session dir: {args.session_dir or 'None'}")
     logger.info(f"Epochs: {args.epochs}")
     logger.info(f"Learning rate: {args.lr}")
     logger.info(f"Batch size: {args.batch_size}")
     logger.info(f"Device: {device}")
     
     try:
-        # Verifica che la directory di embeddings esista
-        embeddings_dir = Path(args.embeddings_dir)
-        if not embeddings_dir.exists():
-            raise FileNotFoundError(f"Directory embeddings non trovata: {embeddings_dir}")
-        
         # Avvia il training
         result = train_model(
             embeddings_dir=args.embeddings_dir,
@@ -575,7 +756,8 @@ def main():
             epochs=args.epochs,
             lr=args.lr,
             batch_size=args.batch_size,
-            logger=logger
+            logger=logger,
+            session_dir=args.session_dir
         )
         
         logger.info("=" * 60)
@@ -583,59 +765,33 @@ def main():
         logger.info("=" * 60)
         logger.info(f"Modello salvato: {result['model_path']}")
         logger.info(f"Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
+        logger.info(f"Output directory: {result['output_dir']}")
         logger.info(f"Files salvati: {list(result['saved_files'].keys())}")
         
-        return 0
+        return result
         
     except Exception as e:
         logger.error(f"Errore durante l'esecuzione: {str(e)}")
-        return 1
+        raise
 
 if __name__ == "__main__":
-    # Determina il path base del progetto per compatibilità legacy
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent
-    
-    # Se chiamato senza argomenti, usa il comportamento legacy
-    if len(sys.argv) == 1:
-        print(f"Working directory: {os.getcwd()}")
-        print(f"Script location: {__file__}")
-        print(f"Project root: {project_root}")
-        
-        # Verifica che i file di embedding esistano (comportamento legacy)
-        embeddings_dir = project_root / "data" / "embeddings"
-        required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
-        
-        missing_files = []
-        for file in required_files:
-            if not (embeddings_dir / file).exists():
-                missing_files.append(file)
-        
-        if missing_files:
-            print(f"\n❌ File mancanti in {embeddings_dir}:")
-            for file in missing_files:
-                print(f"  - {file}")
-            print("\n💡 Genera prima gli embeddings con:")
-            print("python scripts/embed_dataset.py")
-            sys.exit(1)
-        
-        print("\n✅ Tutti i file necessari sono presenti.")
-        print("Avvio training con parametri di default...")
-        
-        # Setup logging per legacy mode
-        logger = setup_logging(project_root / "results" / "logs")
-        
-        # Avvia il training legacy
-        try:
-            result = train_model(
-                embeddings_dir=str(embeddings_dir),
-                output_dir=str(project_root / "results"),
-                logger=logger
-            )
+    try:
+        # Controlla se è chiamato senza argomenti (modalità legacy)
+        if len(sys.argv) == 1:
+            print("🚀 Avvio MLP training in modalità automatica...")
+            print(f"Working directory: {os.getcwd()}")
+            print(f"Script location: {__file__}")
+            
+            result = run_training_auto_mode()
             print(f"\n✅ Training completato! Modello salvato in: {result['model_path']}")
-        except Exception as e:
-            print(f"\n❌ Errore durante il training: {str(e)}")
-            sys.exit(1)
-    else:
-        # Usa il nuovo comportamento CLI
-        sys.exit(main())
+            print(f"📊 Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
+        else:
+            # Usa il parser per CLI
+            result = main()
+            
+    except KeyboardInterrupt:
+        print("\n⏹️ Training interrotto dall'utente")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Errore: {str(e)}")
+        sys.exit(1)
