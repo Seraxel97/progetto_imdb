@@ -2,6 +2,7 @@
 """
 Advanced Embedding Generation Script - COMPLETE PIPELINE INTEGRATION (IMPROVED)
 Generates sentence embeddings for sentiment analysis with comprehensive pipeline integration.
+Now supports both TRAINING and INFERENCE modes with robust error handling.
 
 FEATURES:
 - Dynamic path detection with robust PROJECT_ROOT handling
@@ -14,13 +15,20 @@ FEATURES:
 - Enhanced label distribution analysis and embedding quality verification
 - Compatible with sys.argv injection for pipeline automation
 - Professional CLI interface with extensive configuration options
+- **NEW: Full support for both TRAINING and INFERENCE modes**
+- **NEW: Automatic mode detection and graceful handling of missing labels**
+- **NEW: Support for inference.csv files**
+- **NEW: Robust handling of empty/missing files**
 
 USAGE:
-    # Standard embedding generation
+    # Standard embedding generation (training mode)
     python scripts/embed_dataset.py
     
     # Custom input/output directories (pipeline integration)
     python scripts/embed_dataset.py --input-dir results/session_20241229/processed --output-dir results/session_20241229/embeddings
+    
+    # Inference mode with inference.csv
+    python scripts/embed_dataset.py --inference-only --input-dir data/inference
     
     # Force regeneration with different model
     python scripts/embed_dataset.py --force-recreate --model-name all-mpnet-base-v2
@@ -95,10 +103,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Default configuration values
-# The original version attempted to import these from ``config_constants`` but
-# that module does not exist in this repository.  This caused the script to
-# fail at runtime.  We now define sensible defaults directly here so the
-# embedding step always runs.
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 AVAILABLE_EMBEDDING_MODELS = [
     "all-MiniLM-L6-v2",
@@ -119,6 +123,7 @@ class AdvancedEmbeddingGenerator:
     """
     Advanced embedding generation class with comprehensive pipeline integration.
     Handles model management, progress tracking, error recovery, and quality assurance.
+    Now supports both TRAINING and INFERENCE modes with robust error handling.
     """
     
     def __init__(self, project_root: Optional[str] = None):
@@ -149,6 +154,85 @@ class AdvancedEmbeddingGenerator:
             'results_dir': self.project_root / "results",
             'scripts_dir': self.project_root / "scripts"
         }
+    
+    def detect_operation_mode(self, input_dir: Path, inference_only: bool = False) -> Dict[str, Any]:
+        """
+        NEW: Detect whether we're in training or inference mode based on available files.
+        
+        Args:
+            input_dir: Input directory to analyze
+            inference_only: Force inference mode
+            
+        Returns:
+            Dictionary with mode detection results
+        """
+        mode_info = {
+            'mode': 'unknown',
+            'files_available': [],
+            'files_missing': [],
+            'inference_file': None,
+            'training_files': [],
+            'reason': '',
+            'valid_files': []
+        }
+        
+        # Check for inference.csv
+        inference_file = input_dir / "inference.csv"
+        if inference_file.exists():
+            mode_info['inference_file'] = str(inference_file)
+            mode_info['files_available'].append('inference.csv')
+            
+            # Check if inference.csv is valid
+            try:
+                df = pd.read_csv(inference_file)
+                if len(df) > 0 and 'text' in df.columns:
+                    mode_info['valid_files'].append('inference.csv')
+                    if inference_only or len(mode_info['files_available']) == 1:
+                        mode_info['mode'] = 'inference'
+                        mode_info['reason'] = 'inference.csv found and valid'
+                        self.logger.info(f"🔍 Detected INFERENCE mode: {mode_info['reason']}")
+                        return mode_info
+            except Exception as e:
+                self.logger.warning(f"⚠️ inference.csv exists but invalid: {e}")
+        
+        # Check for training files
+        training_files = ['train.csv', 'val.csv', 'test.csv']
+        valid_training_files = []
+        
+        for filename in training_files:
+            filepath = input_dir / filename
+            if filepath.exists():
+                mode_info['files_available'].append(filename)
+                try:
+                    df = pd.read_csv(filepath)
+                    if len(df) > 0 and 'text' in df.columns:
+                        valid_training_files.append(filename)
+                        mode_info['valid_files'].append(filename)
+                        mode_info['training_files'].append(str(filepath))
+                except Exception as e:
+                    self.logger.warning(f"⚠️ {filename} exists but invalid: {e}")
+            else:
+                mode_info['files_missing'].append(filename)
+        
+        # Determine mode based on valid files
+        if inference_only:
+            mode_info['mode'] = 'inference'
+            mode_info['reason'] = 'inference-only flag specified'
+        elif len(valid_training_files) >= 2:  # Need at least 2 valid files for training
+            mode_info['mode'] = 'training'
+            mode_info['reason'] = f'Valid training files found: {valid_training_files}'
+        elif len(valid_training_files) == 1 and 'test.csv' in valid_training_files:
+            mode_info['mode'] = 'inference'
+            mode_info['reason'] = 'Only test.csv is valid, treating as inference'
+        elif mode_info['inference_file'] and 'inference.csv' in mode_info['valid_files']:
+            mode_info['mode'] = 'inference'
+            mode_info['reason'] = 'inference.csv is the only valid file'
+        else:
+            mode_info['mode'] = 'training'  # Default to training, but will likely fail validation
+            mode_info['reason'] = f'Insufficient valid files for inference, defaulting to training mode'
+        
+        self.logger.info(f"🔍 Detected {mode_info['mode'].upper()} mode: {mode_info['reason']}")
+        return mode_info
     
     def find_local_models(self) -> Dict[str, Path]:
         """
@@ -275,28 +359,50 @@ class AdvancedEmbeddingGenerator:
     
     def check_label_balance(self, df: pd.DataFrame, filename: str) -> Dict[str, Any]:
         """
-        IMPROVED: Check for label distribution issues.
+        IMPROVED: Check for label distribution issues with inference mode support.
         
         Args:
-            df: DataFrame with label column
+            df: DataFrame with optional label column
             filename: Name of the file being checked
         
         Returns:
             Dictionary with balance analysis results
         """
+        balance_info = {
+            'total_samples': len(df),
+            'has_labels': 'label' in df.columns,
+            'unique_labels': 0,
+            'label_distribution': {},
+            'min_class_count': 0,
+            'max_class_count': 0,
+            'min_class_pct': 0,
+            'max_class_pct': 0,
+            'balance_warnings': []
+        }
+        
+        if not balance_info['has_labels']:
+            balance_info['balance_warnings'].append("No label column found (inference mode)")
+            self.logger.info(f"🔍 {filename}: No labels found, inference mode")
+            return balance_info
+        
+        # Check if label column has valid data
+        if df['label'].isnull().all():
+            balance_info['balance_warnings'].append("All labels are null (inference mode)")
+            self.logger.info(f"🔍 {filename}: All labels are null, inference mode")
+            return balance_info
+        
+        # Analyze label distribution
         label_counts = df['label'].value_counts()
         total = len(df)
         
-        balance_info = {
-            'total_samples': total,
+        balance_info.update({
             'unique_labels': len(label_counts),
             'label_distribution': label_counts.to_dict(),
             'min_class_count': label_counts.min(),
             'max_class_count': label_counts.max(),
             'min_class_pct': (label_counts.min() / total) * 100,
-            'max_class_pct': (label_counts.max() / total) * 100,
-            'balance_warnings': []
-        }
+            'max_class_pct': (label_counts.max() / total) * 100
+        })
         
         # Check for severe imbalance
         if balance_info['min_class_pct'] < 5:
@@ -318,20 +424,22 @@ class AdvancedEmbeddingGenerator:
         
         return balance_info
     
-    def validate_input_data_comprehensive(self, input_dir: Path) -> Dict[str, Any]:
+    def validate_input_data_comprehensive(self, input_dir: Path, mode_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Comprehensive validation of input data with detailed analysis.
+        IMPROVED: Comprehensive validation of input data with training/inference mode support.
         
         Args:
             input_dir: Directory containing CSV files
+            mode_info: Mode detection results
         
         Returns:
             Validation results dictionary
         """
-        self.logger.info(f"🔍 Comprehensive input validation: {input_dir}")
+        self.logger.info(f"🔍 Comprehensive input validation: {input_dir} (Mode: {mode_info['mode']})")
         
         validation = {
             'valid': True,
+            'mode': mode_info['mode'],
             'input_directory': str(input_dir),
             'files_found': [],
             'files_missing': [],
@@ -339,7 +447,8 @@ class AdvancedEmbeddingGenerator:
             'column_issues': [],
             'data_quality': {},
             'label_balance': {},
-            'total_samples': 0
+            'total_samples': 0,
+            'inference_mode': mode_info['mode'] == 'inference'
         }
         
         if not input_dir.exists():
@@ -348,16 +457,29 @@ class AdvancedEmbeddingGenerator:
             validation['directory_missing'] = True
             return validation
         
-        required_files = ['train.csv', 'val.csv', 'test.csv']
-        required_columns = ['text', 'label']
+        # Determine files to check based on mode
+        if mode_info['mode'] == 'inference':
+            if mode_info['inference_file']:
+                files_to_check = ['inference.csv']
+            else:
+                # Check only valid files from mode detection
+                files_to_check = [f for f in ['train.csv', 'val.csv', 'test.csv'] 
+                                 if f in mode_info['valid_files']]
+        else:
+            files_to_check = ['train.csv', 'val.csv', 'test.csv']
         
-        for filename in required_files:
+        required_columns = ['text']  # 'label' is optional in inference mode
+        
+        for filename in files_to_check:
             filepath = input_dir / filename
             
             if not filepath.exists():
                 validation['files_missing'].append(filename)
-                validation['valid'] = False
-                self.logger.warning(f"⚠️ Missing file: {filepath}")
+                if mode_info['mode'] == 'training':
+                    validation['valid'] = False
+                    self.logger.warning(f"⚠️ Missing file: {filepath}")
+                else:
+                    self.logger.info(f"🔍 Skipping missing file in inference mode: {filepath}")
                 continue
             
             validation['files_found'].append(filename)
@@ -365,11 +487,23 @@ class AdvancedEmbeddingGenerator:
             try:
                 # Load and analyze file
                 df = pd.read_csv(filepath)
+                
+                # Skip empty files in inference mode
+                if len(df) == 0:
+                    if mode_info['mode'] == 'inference':
+                        self.logger.warning(f"⚠️ Empty file skipped in inference mode: {filename}")
+                        continue
+                    else:
+                        validation['valid'] = False
+                        self.logger.error(f"❌ Empty file in training mode: {filename}")
+                        continue
+                
                 file_info = {
                     'samples': len(df),
                     'columns': list(df.columns),
                     'file_size_mb': filepath.stat().st_size / (1024 * 1024),
-                    'memory_usage_mb': df.memory_usage(deep=True).sum() / (1024 * 1024)
+                    'memory_usage_mb': df.memory_usage(deep=True).sum() / (1024 * 1024),
+                    'has_labels': 'label' in df.columns
                 }
                 
                 # Check required columns
@@ -382,35 +516,49 @@ class AdvancedEmbeddingGenerator:
                     })
                     validation['valid'] = False
                     self.logger.error(f"❌ Column issues in {filename}: missing {missing_columns}")
-                else:
-                    # Analyze data quality
-                    text_stats = {
-                        'null_count': df['text'].isnull().sum(),
-                        'empty_count': (df['text'] == '').sum(),
-                        'avg_length': df['text'].str.len().mean(),
-                        'min_length': df['text'].str.len().min(),
-                        'max_length': df['text'].str.len().max(),
-                        'very_short_texts': (df['text'].str.len() < 10).sum(),
-                        'very_long_texts': (df['text'].str.len() > 1000).sum()
-                    }
-                    
+                    continue
+                
+                # Analyze data quality
+                text_stats = {
+                    'null_count': df['text'].isnull().sum(),
+                    'empty_count': (df['text'] == '').sum(),
+                    'avg_length': df['text'].str.len().mean(),
+                    'min_length': df['text'].str.len().min(),
+                    'max_length': df['text'].str.len().max(),
+                    'very_short_texts': (df['text'].str.len() < 10).sum(),
+                    'very_long_texts': (df['text'].str.len() > 1000).sum()
+                }
+                
+                # Handle labels (optional in inference mode)
+                if 'label' in df.columns:
                     label_stats = {
                         'unique_labels': df['label'].nunique(),
                         'label_distribution': df['label'].value_counts().to_dict(),
                         'null_labels': df['label'].isnull().sum()
                     }
-                    
-                    # IMPROVED: Add label balance analysis
-                    balance_analysis = self.check_label_balance(df, filename)
-                    validation['label_balance'][filename] = balance_analysis
-                    
-                    file_info['text_quality'] = text_stats
-                    file_info['label_quality'] = label_stats
-                    file_info['label_balance'] = balance_analysis
-                    
-                    self.logger.info(f"✅ {filename}: {len(df):,} samples, quality OK")
-                    self.logger.info(f"   📊 Text: avg_len={text_stats['avg_length']:.0f}, nulls={text_stats['null_count']}")
+                else:
+                    label_stats = {
+                        'unique_labels': 0,
+                        'label_distribution': {},
+                        'null_labels': 0,
+                        'inference_mode': True
+                    }
+                
+                # Label balance analysis
+                balance_analysis = self.check_label_balance(df, filename)
+                validation['label_balance'][filename] = balance_analysis
+                
+                file_info['text_quality'] = text_stats
+                file_info['label_quality'] = label_stats
+                file_info['label_balance'] = balance_analysis
+                
+                self.logger.info(f"✅ {filename}: {len(df):,} samples, quality OK")
+                self.logger.info(f"   📊 Text: avg_len={text_stats['avg_length']:.0f}, nulls={text_stats['null_count']}")
+                
+                if file_info['has_labels']:
                     self.logger.info(f"   🏷️ Labels: {label_stats['unique_labels']} classes, nulls={label_stats['null_labels']}")
+                else:
+                    self.logger.info(f"   🔍 No labels (inference mode)")
                 
                 validation['file_details'][filename] = file_info
                 validation['total_samples'] += len(df)
@@ -423,11 +571,26 @@ class AdvancedEmbeddingGenerator:
                 validation['valid'] = False
                 self.logger.error(f"❌ Error reading {filename}: {e}")
         
+        # Final validation check
+        if validation['inference_mode']:
+            # In inference mode, we just need at least one valid file with text
+            if validation['total_samples'] == 0:
+                validation['valid'] = False
+                self.logger.error(f"❌ No valid samples found for inference")
+            else:
+                self.logger.info(f"✅ Inference mode validation passed")
+        else:
+            # In training mode, we need proper training files
+            if not validation['files_found'] or validation['total_samples'] == 0:
+                validation['valid'] = False
+                self.logger.error(f"❌ Training mode validation failed")
+        
         # Overall data quality assessment
         if validation['valid']:
             total_samples = validation['total_samples']
             self.logger.info(f"✅ All input files validated successfully")
             self.logger.info(f"   📊 Total samples: {total_samples:,}")
+            self.logger.info(f"   🎯 Mode: {validation['mode']}")
             
             # Calculate split proportions
             if validation['file_details']:
@@ -506,26 +669,146 @@ class AdvancedEmbeddingGenerator:
         
         return quality_info
     
-    def process_large_dataset_chunks(self, texts: List[str], chunk_size: int = 50000):
+    def load_and_embed_split(self, input_dir: Path, split_name: str, model: SentenceTransformer, 
+                           batch_size: int, embedding_dim: int, mode_info: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """
-        IMPROVED: Process large datasets in chunks to manage memory.
+        NEW: Load and embed a single split with robust error handling for training/inference modes.
         
         Args:
-            texts: List of texts to process
-            chunk_size: Size of each chunk
-        
-        Yields:
-            Chunks of texts
+            input_dir: Input directory
+            split_name: Name of split (train/val/test/inference)
+            model: Loaded SentenceTransformer model
+            batch_size: Batch size for processing
+            embedding_dim: Embedding dimension
+            mode_info: Mode detection results
+            
+        Returns:
+            Tuple of (embeddings, labels, processing_info)
         """
-        for i in range(0, len(texts), chunk_size):
-            yield texts[i:i+chunk_size], i
+        # Handle inference.csv special case
+        if split_name == 'inference' and mode_info.get('inference_file'):
+            input_file = Path(mode_info['inference_file'])
+        else:
+            input_file = input_dir / f"{split_name}.csv"
+        
+        processing_info = {
+            'split': split_name,
+            'input_file': str(input_file),
+            'original_samples': 0,
+            'processed_samples': 0,
+            'removed_samples': 0,
+            'has_labels': False,
+            'embedding_shape': None,
+            'labels_shape': None,
+            'error': None
+        }
+        
+        try:
+            if not input_file.exists():
+                raise FileNotFoundError(f"File not found: {input_file}")
+            
+            # Load data
+            df = pd.read_csv(input_file)
+            processing_info['original_samples'] = len(df)
+            
+            if len(df) == 0:
+                self.logger.warning(f"⚠️ Empty file: {split_name}")
+                return (np.array([]).reshape(0, embedding_dim), 
+                       np.array([]), 
+                       processing_info)
+            
+            if 'text' not in df.columns:
+                raise ValueError(f"Missing 'text' column in {split_name}")
+            
+            # Extract texts
+            texts = df['text'].fillna('').astype(str).tolist()
+            
+            # Handle labels
+            if 'label' in df.columns and not df['label'].isnull().all():
+                labels = df['label'].tolist()
+                processing_info['has_labels'] = True
+            else:
+                # Create placeholder labels for inference mode
+                labels = [-1] * len(texts)  # Use -1 as placeholder
+                processing_info['has_labels'] = False
+                self.logger.info(f"🔍 No labels found in {split_name}, using placeholder labels")
+            
+            # Filter out empty texts
+            valid_indices = [i for i, text in enumerate(texts) if text.strip()]
+            texts = [texts[i] for i in valid_indices]
+            labels = [labels[i] for i in valid_indices]
+            
+            processing_info['processed_samples'] = len(texts)
+            processing_info['removed_samples'] = processing_info['original_samples'] - processing_info['processed_samples']
+            
+            if processing_info['removed_samples'] > 0:
+                self.logger.warning(f"   ⚠️ Removed {processing_info['removed_samples']} empty texts from {split_name}")
+            
+            if len(texts) == 0:
+                self.logger.warning(f"⚠️ No valid texts found in {split_name}")
+                return (np.array([]).reshape(0, embedding_dim), 
+                       np.array([]), 
+                       processing_info)
+            
+            self.logger.info(f"   📊 Processing {len(texts):,} valid samples in {split_name}")
+            
+            # Generate embeddings with progress tracking
+            embeddings = []
+            
+            if len(texts) > 100:
+                # Use tqdm for large datasets
+                progress_bar = tqdm(
+                    range(0, len(texts), batch_size),
+                    desc=f"Embedding {split_name}",
+                    unit="batch"
+                )
+            else:
+                progress_bar = range(0, len(texts), batch_size)
+            
+            for i in progress_bar:
+                batch_texts = texts[i:i+batch_size]
+                
+                try:
+                    batch_embeddings = model.encode(
+                        batch_texts,
+                        convert_to_numpy=True,
+                        show_progress_bar=False,
+                        batch_size=batch_size
+                    )
+                    embeddings.append(batch_embeddings)
+                    
+                except Exception as batch_error:
+                    self.logger.error(f"❌ Error processing batch {i//batch_size + 1} in {split_name}: {batch_error}")
+                    # Add zero embeddings for failed batch
+                    embeddings.append(np.zeros((len(batch_texts), embedding_dim)))
+            
+            # Combine all embeddings
+            if embeddings:
+                all_embeddings = np.vstack(embeddings)
+            else:
+                all_embeddings = np.array([]).reshape(0, embedding_dim)
+            
+            all_labels = np.array(labels)
+            
+            processing_info['embedding_shape'] = all_embeddings.shape
+            processing_info['labels_shape'] = all_labels.shape
+            
+            return all_embeddings, all_labels, processing_info
+            
+        except Exception as e:
+            processing_info['error'] = str(e)
+            self.logger.error(f"❌ Error processing {split_name}: {e}")
+            return (np.array([]).reshape(0, embedding_dim), 
+                   np.array([]), 
+                   processing_info)
     
     def generate_embeddings_advanced(self, input_dir: Path, output_dir: Path,
                                    model_name: str = DEFAULT_EMBEDDING_MODEL,
                                    batch_size: int = None, max_length: int = None,
-                                   force_recreate: bool = False) -> Dict[str, Any]:
+                                   force_recreate: bool = False,
+                                   inference_only: bool = False) -> Dict[str, Any]:
         """
-        Generate embeddings with advanced progress tracking and error handling.
+        IMPROVED: Generate embeddings with advanced progress tracking and training/inference mode support.
         
         Args:
             input_dir: Directory containing CSV files
@@ -534,6 +817,7 @@ class AdvancedEmbeddingGenerator:
             batch_size: Batch size for processing
             max_length: Maximum sequence length
             force_recreate: Force recreation even if files exist
+            inference_only: Force inference mode
         
         Returns:
             Comprehensive generation results
@@ -552,19 +836,41 @@ class AdvancedEmbeddingGenerator:
         self.logger.info(f"   🤖 Model: {model_name}")
         self.logger.info(f"   ⚙️ Batch size: {batch_size}")
         self.logger.info(f"   📏 Max length: {max_length}")
+        self.logger.info(f"   🔍 Inference only: {inference_only}")
         
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Detect operation mode
+        mode_info = self.detect_operation_mode(input_dir, inference_only)
+        
         # Validate input data
-        validation = self.validate_input_data_comprehensive(input_dir)
+        validation = self.validate_input_data_comprehensive(input_dir, mode_info)
         if not validation['valid']:
-            raise ValueError(f"Input validation failed: {validation}")
+            return {
+                'success': False,
+                'error': 'Input validation failed',
+                'validation_results': validation,
+                'mode_info': mode_info
+            }
         
         # Check for existing embeddings
         if not force_recreate:
             existing_files = []
-            for split in ['train', 'val', 'test']:
+            
+            # Check based on mode
+            if mode_info['mode'] == 'inference':
+                if mode_info.get('inference_file'):
+                    # Check for inference embeddings
+                    files_to_check = ['inference']
+                else:
+                    # Check for test embeddings (inference mode using test.csv)
+                    files_to_check = ['test']
+            else:
+                # Training mode
+                files_to_check = ['train', 'val', 'test']
+            
+            for split in files_to_check:
                 emb_file = output_dir / f"X_{split}.npy"
                 lab_file = output_dir / f"y_{split}.npy"
                 if emb_file.exists() and lab_file.exists():
@@ -577,20 +883,22 @@ class AdvancedEmbeddingGenerator:
                     return {
                         'success': False,
                         'reason': 'embeddings_exist',
-                        'existing_files': existing_files
+                        'existing_files': existing_files,
+                        'mode_info': mode_info
                     }
         
         # Load model
         model = self.load_model_advanced(model_name, max_length)
         embedding_dim = model.encode(["test"], convert_to_numpy=True).shape[1]
         
-        # IMPROVED: Check if embedding dimension is too small
+        # Check if embedding dimension is too small
         if embedding_dim < 256:
             self.logger.warning(f"⚠️ Small embedding dimension ({embedding_dim}) - may affect MLP performance")
         
-        # Process each split
+        # Process splits based on mode
         results = {
             'success': True,
+            'mode': mode_info['mode'],
             'model_name': model_name,
             'embedding_dim': embedding_dim,
             'max_length': max_length,
@@ -602,141 +910,85 @@ class AdvancedEmbeddingGenerator:
             'processing_time': 0,
             'validation_results': validation,
             'quality_checks': {},
-            'model_load_time': self.model_load_time
+            'model_load_time': self.model_load_time,
+            'mode_info': mode_info
         }
         
-        splits = ['train', 'val', 'test']
+        # Determine splits to process
+        if mode_info['mode'] == 'inference':
+            if mode_info.get('inference_file'):
+                splits_to_process = ['inference']
+            else:
+                # Use available valid files from training set
+                splits_to_process = [f.replace('.csv', '') for f in mode_info['valid_files']]
+        else:
+            splits_to_process = ['train', 'val', 'test']
+        
         embedding_start_time = time.time()
         
-        for split in splits:
-            input_file = input_dir / f"{split}.csv"
-            
-            if not input_file.exists():
-                self.logger.warning(f"⚠️ Skipping {split}: file not found")
-                continue
-            
+        for split in splits_to_process:
             self.logger.info(f"\n🔄 Processing {split} split...")
             
-            try:
-                # Load data
-                df = pd.read_csv(input_file)
-                
-                if 'text' not in df.columns or 'label' not in df.columns:
-                    self.logger.error(f"❌ Required columns missing in {split}")
-                    continue
-                
-                # Extract and validate data
-                texts = df['text'].fillna('').astype(str).tolist()
-                labels = df['label'].tolist()
-                
-                # Filter out empty texts
-                valid_indices = [i for i, text in enumerate(texts) if text.strip()]
-                texts = [texts[i] for i in valid_indices]
-                labels = [labels[i] for i in valid_indices]
-                
-                removed_count = len(df) - len(texts)
-                if removed_count > 0:
-                    self.logger.warning(f"   ⚠️ Removed {removed_count} empty texts")
-                
-                # IMPROVED: Check for empty splits
-                if len(texts) == 0:
-                    raise ValueError(f"No valid text samples found in {split}")
-                
-                self.logger.info(f"   📊 Processing {len(texts):,} valid samples")
-                
-                # IMPROVED: Memory warning for large datasets
-                if len(texts) > 100000:
-                    self.logger.warning(f"   ⚠️ Large dataset ({len(texts):,} samples). Monitoring memory usage...")
-                
-                # Generate embeddings with progress tracking
-                embeddings = []
-                
-                if len(texts) > 100:
-                    # Use tqdm for large datasets
-                    progress_bar = tqdm(
-                        range(0, len(texts), batch_size),
-                        desc=f"Embedding {split}",
-                        unit="batch"
-                    )
-                else:
-                    progress_bar = range(0, len(texts), batch_size)
-                
-                for i in progress_bar:
-                    batch_texts = texts[i:i+batch_size]
-                    
-                    try:
-                        batch_embeddings = model.encode(
-                            batch_texts,
-                            convert_to_numpy=True,
-                            show_progress_bar=False,
-                            batch_size=batch_size
-                        )
-                        embeddings.append(batch_embeddings)
-                        
-                    except Exception as batch_error:
-                        self.logger.error(f"❌ Error processing batch {i//batch_size + 1}: {batch_error}")
-                        # Add zero embeddings for failed batch
-                        embeddings.append(np.zeros((len(batch_texts), embedding_dim)))
-                
-                # Combine all embeddings
-                if embeddings:
-                    all_embeddings = np.vstack(embeddings)
-                else:
-                    all_embeddings = np.array([]).reshape(0, embedding_dim)
-                
-                all_labels = np.array(labels)
-                
-                # IMPROVED: Verify embedding quality
-                quality_check = self.verify_embedding_quality(all_embeddings, split)
-                results['quality_checks'][split] = quality_check
-                
-                # Save embeddings and labels
-                embeddings_file = output_dir / f"X_{split}.npy"
-                labels_file = output_dir / f"y_{split}.npy"
-                
-                np.save(embeddings_file, all_embeddings)
-                np.save(labels_file, all_labels)
-                
-                # Verify saved files
-                saved_embeddings = np.load(embeddings_file)
-                saved_labels = np.load(labels_file)
-                
-                if saved_embeddings.shape[0] != saved_labels.shape[0]:
-                    raise ValueError(f"Shape mismatch: embeddings {saved_embeddings.shape} vs labels {saved_labels.shape}")
-                
-                # Record split results
-                split_info = {
-                    'split': split,
-                    'original_samples': len(df),
-                    'processed_samples': len(texts),
-                    'removed_samples': removed_count,
-                    'embedding_shape': all_embeddings.shape,
-                    'labels_shape': all_labels.shape,
-                    'embeddings_file': str(embeddings_file),
-                    'labels_file': str(labels_file),
-                    'file_size_mb': {
-                        'embeddings': embeddings_file.stat().st_size / (1024 * 1024),
-                        'labels': labels_file.stat().st_size / (1024 * 1024)
-                    },
-                    'quality_check': quality_check
-                }
-                
-                results['splits_processed'].append(split_info)
-                results['total_samples'] += len(texts)
-                
-                self.logger.info(f"   ✅ {split} completed:")
-                self.logger.info(f"      💾 Embeddings: {embeddings_file} ({split_info['file_size_mb']['embeddings']:.1f}MB)")
-                self.logger.info(f"      💾 Labels: {labels_file} ({split_info['file_size_mb']['labels']:.1f}MB)")
-                self.logger.info(f"      📏 Shape: {all_embeddings.shape}")
-                
-            except Exception as split_error:
-                self.logger.error(f"❌ Error processing {split}: {split_error}")
+            # Load and embed split
+            embeddings, labels, processing_info = self.load_and_embed_split(
+                input_dir, split, model, batch_size, embedding_dim, mode_info
+            )
+            
+            if processing_info.get('error'):
+                self.logger.error(f"❌ Failed to process {split}: {processing_info['error']}")
                 results['success'] = False
                 results['errors'] = results.get('errors', [])
-                results['errors'].append({
-                    'split': split,
-                    'error': str(split_error)
-                })
+                results['errors'].append(processing_info)
+                continue
+            
+            if len(embeddings) == 0:
+                self.logger.warning(f"⚠️ No embeddings generated for {split}")
+                continue
+            
+            # Verify embedding quality
+            quality_check = self.verify_embedding_quality(embeddings, split)
+            results['quality_checks'][split] = quality_check
+            
+            # Save embeddings and labels
+            embeddings_file = output_dir / f"X_{split}.npy"
+            labels_file = output_dir / f"y_{split}.npy"
+            
+            np.save(embeddings_file, embeddings)
+            np.save(labels_file, labels)
+            
+            # Verify saved files
+            saved_embeddings = np.load(embeddings_file)
+            saved_labels = np.load(labels_file)
+            
+            if saved_embeddings.shape[0] != saved_labels.shape[0]:
+                raise ValueError(f"Shape mismatch: embeddings {saved_embeddings.shape} vs labels {saved_labels.shape}")
+            
+            # Record split results
+            split_info = {
+                'split': split,
+                'original_samples': processing_info['original_samples'],
+                'processed_samples': processing_info['processed_samples'],
+                'removed_samples': processing_info['removed_samples'],
+                'has_labels': processing_info['has_labels'],
+                'embedding_shape': embeddings.shape,
+                'labels_shape': labels.shape,
+                'embeddings_file': str(embeddings_file),
+                'labels_file': str(labels_file),
+                'file_size_mb': {
+                    'embeddings': embeddings_file.stat().st_size / (1024 * 1024),
+                    'labels': labels_file.stat().st_size / (1024 * 1024)
+                },
+                'quality_check': quality_check
+            }
+            
+            results['splits_processed'].append(split_info)
+            results['total_samples'] += processing_info['processed_samples']
+            
+            self.logger.info(f"   ✅ {split} completed:")
+            self.logger.info(f"      💾 Embeddings: {embeddings_file} ({split_info['file_size_mb']['embeddings']:.1f}MB)")
+            self.logger.info(f"      💾 Labels: {labels_file} ({split_info['file_size_mb']['labels']:.1f}MB)")
+            self.logger.info(f"      📏 Shape: {embeddings.shape}")
+            self.logger.info(f"      🏷️ Has labels: {processing_info['has_labels']}")
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -744,14 +996,10 @@ class AdvancedEmbeddingGenerator:
         results['processing_time'] = processing_time
         results['embedding_generation_time'] = embedding_time
         
-        # IMPROVED: Calculate quality metrics with proper error handling
+        # Calculate quality metrics
         if results['splits_processed']:
             total_original = sum(info['original_samples'] for info in results['splits_processed'])
-            if total_original > 0:
-                processing_success_rate = results['total_samples'] / total_original
-            else:
-                processing_success_rate = 0
-                self.logger.warning("⚠️ No original samples found for success rate calculation")
+            processing_success_rate = results['total_samples'] / total_original if total_original > 0 else 0
         else:
             processing_success_rate = 0
             total_original = 0
@@ -760,6 +1008,7 @@ class AdvancedEmbeddingGenerator:
         metadata = {
             'generation_info': {
                 'timestamp': datetime.now().isoformat(),
+                'mode': mode_info['mode'],
                 'model_name': model_name,
                 'embedding_dimension': embedding_dim,
                 'max_sequence_length': max_length,
@@ -769,6 +1018,7 @@ class AdvancedEmbeddingGenerator:
                 'embedding_generation_time_seconds': embedding_time,
                 'total_samples_processed': results['total_samples']
             },
+            'mode_info': mode_info,
             'model_details': {
                 'model_type': 'SentenceTransformer',
                 'model_name': model_name,
@@ -792,7 +1042,8 @@ class AdvancedEmbeddingGenerator:
                 'total_original_samples': total_original,
                 'total_processed_samples': results['total_samples'],
                 'total_removed_samples': sum(info['removed_samples'] for info in results['splits_processed']),
-                'processing_success_rate': processing_success_rate
+                'processing_success_rate': processing_success_rate,
+                'inference_mode': mode_info['mode'] == 'inference'
             },
             'performance_metrics': {
                 'samples_per_second': results['total_samples'] / embedding_time if embedding_time > 0 else 0,
@@ -844,7 +1095,7 @@ class AdvancedEmbeddingGenerator:
     def _print_generation_summary(self, results: Dict[str, Any], processing_time: float, 
                                  output_dir: Path, metadata_file: Path):
         """
-        IMPROVED: Print comprehensive generation summary.
+        IMPROVED: Print comprehensive generation summary with mode information.
         
         Args:
             results: Generation results
@@ -852,8 +1103,11 @@ class AdvancedEmbeddingGenerator:
             output_dir: Output directory
             metadata_file: Metadata file path
         """
+        mode_emoji = "🔍" if results['mode'] == 'inference' else "🎯"
+        
         if results['success']:
             self.logger.info(f"\n🎉 EMBEDDING GENERATION COMPLETED SUCCESSFULLY!")
+            self.logger.info(f"   {mode_emoji} Mode: {results['mode'].upper()}")
             self.logger.info(f"   ⏱️ Total time: {processing_time:.1f}s (Model: {self.model_load_time:.1f}s, Embedding: {results.get('embedding_generation_time', 0):.1f}s)")
             self.logger.info(f"   📊 Total samples: {results['total_samples']:,}")
             self.logger.info(f"   📁 Output directory: {output_dir}")
@@ -864,7 +1118,8 @@ class AdvancedEmbeddingGenerator:
             for split_info in results['splits_processed']:
                 quality_issues = len(split_info['quality_check'].get('issues_found', []))
                 quality_status = "⚠️" if quality_issues > 0 else "✅"
-                self.logger.info(f"      • {split_info['split']}: {split_info['processed_samples']:,} samples {quality_status}")
+                label_status = "🏷️" if split_info['has_labels'] else "🔍"
+                self.logger.info(f"      • {split_info['split']}: {split_info['processed_samples']:,} samples {quality_status} {label_status}")
             
             # Show file sizes
             total_size = sum(
@@ -891,9 +1146,11 @@ class AdvancedEmbeddingGenerator:
                 
         else:
             self.logger.error(f"❌ EMBEDDING GENERATION FAILED")
+            self.logger.error(f"   {mode_emoji} Mode: {results.get('mode', 'unknown').upper()}")
+            
             if 'errors' in results:
                 for error in results['errors']:
-                    self.logger.error(f"   Split {error['split']}: {error['error']}")
+                    self.logger.error(f"   Split {error['split']}: {error.get('error', 'Unknown error')}")
             
             if results.get('reason') == 'embeddings_exist':
                 self.logger.error("   Reason: Embeddings already exist")
@@ -908,18 +1165,20 @@ def create_embeddings_pipeline_compatible(input_dir: str, output_dir: str,
                                          model_name: str = DEFAULT_EMBEDDING_MODEL,
                                          batch_size: int = None, max_length: int = None,
                                          force_recreate: bool = False,
+                                         inference_only: bool = False,
                                          verbose: bool = True) -> Dict[str, Any]:
     """
     Pipeline-compatible embedding generation function.
-    Enhanced version of the original create_embeddings function with full integration.
+    Enhanced version with full training/inference mode support.
     
     Args:
-        input_dir: Directory containing train.csv, val.csv, test.csv
+        input_dir: Directory containing train.csv, val.csv, test.csv, or inference.csv
         output_dir: Directory to save embeddings
         model_name: SentenceTransformer model name
         batch_size: Batch size for embedding generation
         max_length: Maximum sequence length
         force_recreate: Force recreation even if embeddings exist
+        inference_only: Force inference mode
         verbose: Whether to print progress
     
     Returns:
@@ -939,7 +1198,7 @@ def create_embeddings_pipeline_compatible(input_dir: str, output_dir: str,
         
         # Generate embeddings
         results = generator.generate_embeddings_advanced(
-            input_path, output_path, model_name, batch_size, max_length, force_recreate
+            input_path, output_path, model_name, batch_size, max_length, force_recreate, inference_only
         )
         
         return results
@@ -950,7 +1209,8 @@ def create_embeddings_pipeline_compatible(input_dir: str, output_dir: str,
             'success': False,
             'error': str(e),
             'input_dir': input_dir,
-            'output_dir': output_dir
+            'output_dir': output_dir,
+            'inference_only': inference_only
         }
 
 # Legacy compatibility function (maintained for backward compatibility)
@@ -972,7 +1232,7 @@ def create_embeddings(input_dir, output_dir, model_name=DEFAULT_EMBEDDING_MODEL,
         Summary dictionary (legacy format)
     """
     results = create_embeddings_pipeline_compatible(
-        str(input_dir), str(output_dir), model_name, batch_size, max_length, False, verbose
+        str(input_dir), str(output_dir), model_name, batch_size, max_length, False, False, verbose
     )
     
     if results['success']:
@@ -985,7 +1245,8 @@ def create_embeddings(input_dir, output_dir, model_name=DEFAULT_EMBEDDING_MODEL,
             'splits_processed': results['splits_processed'],
             'total_samples': results['total_samples'],
             'input_dir': results['input_directory'],
-            'output_dir': results['output_directory']
+            'output_dir': results['output_directory'],
+            'mode': results['mode']
         }
         return legacy_summary
     else:
@@ -1003,16 +1264,19 @@ def validate_input_files(input_dir, verbose=True):
         Validation results dictionary
     """
     generator = AdvancedEmbeddingGenerator()
-    validation = generator.validate_input_data_comprehensive(Path(input_dir))
+    mode_info = generator.detect_operation_mode(Path(input_dir))
+    validation = generator.validate_input_data_comprehensive(Path(input_dir), mode_info)
     
     # Convert to legacy format
     legacy_validation = {
         'valid': validation['valid'],
+        'mode': validation['mode'],
         'files_found': validation['files_found'],
         'files_missing': validation['files_missing'],
         'column_issues': validation['column_issues'],
         'sample_counts': {},
-        'input_directory': validation['input_directory']
+        'input_directory': validation['input_directory'],
+        'inference_mode': validation['inference_mode']
     }
     
     # Extract sample counts from file details
@@ -1027,17 +1291,20 @@ def validate_input_files(input_dir, verbose=True):
 
 
 def main(argv=None):
-    """Enhanced main function with comprehensive CLI support and pipeline integration."""
+    """Enhanced main function with comprehensive CLI support and training/inference mode integration."""
     parser = argparse.ArgumentParser(
-        description="Advanced Embedding Generation for Sentiment Analysis (IMPROVED)",
+        description="Advanced Embedding Generation for Sentiment Analysis (TRAINING/INFERENCE SUPPORT)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Standard embedding generation
+  # Standard embedding generation (auto-detect mode)
   %(prog)s
   
   # Custom input/output directories (pipeline integration)
   %(prog)s --input-dir results/session_20241229/processed --output-dir results/session_20241229/embeddings
+  
+  # Force inference mode
+  %(prog)s --inference-only --input-dir data/inference
   
   # Force regeneration with different model
   %(prog)s --force-recreate --model-name all-mpnet-base-v2
@@ -1052,7 +1319,7 @@ Examples:
     
     # Input/Output paths (dynamic defaults)
     parser.add_argument("--input-dir", default=str(PROCESSED_DATA_DIR),
-                       help=f"Directory containing train.csv, val.csv, test.csv (default: {PROCESSED_DATA_DIR})")
+                       help=f"Directory containing CSV files (default: {PROCESSED_DATA_DIR})")
     parser.add_argument("--output-dir", default=str(EMBEDDINGS_DATA_DIR),
                        help=f"Directory to save embeddings and metadata (default: {EMBEDDINGS_DATA_DIR})")
     
@@ -1064,6 +1331,10 @@ Examples:
                        help=f"Batch size for embedding generation (default: {DEFAULT_TRAIN_PARAMS['embedding_batch_size']})")
     parser.add_argument("--max-length", type=int, default=DEFAULT_TRAIN_PARAMS['max_sequence_length'],
                        help=f"Maximum sequence length (default: {DEFAULT_TRAIN_PARAMS['max_sequence_length']})")
+    
+    # Mode configuration
+    parser.add_argument("--inference-only", action="store_true",
+                       help="Force inference mode (automatically detected if inference.csv exists)")
     
     # Advanced options
     parser.add_argument("--force-recreate", action="store_true",
@@ -1101,30 +1372,41 @@ Examples:
     verbose = args.verbose and not args.quiet
     
     if verbose:
-        logger.info("🚀 Advanced Sentiment Analysis Embedding Generation (IMPROVED)")
+        logger.info("🚀 Advanced Sentiment Analysis Embedding Generation (TRAINING/INFERENCE SUPPORT)")
         logger.info(f"📁 Project root: {PROJECT_ROOT}")
         logger.info(f"📄 Input directory: {args.input_dir}")
         logger.info(f"📄 Output directory: {args.output_dir}")
         logger.info(f"🤖 Model: {args.model_name}")
         logger.info(f"⚙️ Batch size: {args.batch_size}")
         logger.info(f"📏 Max length: {args.max_length}")
+        logger.info(f"🔍 Inference only: {args.inference_only}")
     
     try:
         # Initialize generator
         generator = AdvancedEmbeddingGenerator()
         
+        # Detect mode first
+        mode_info = generator.detect_operation_mode(Path(args.input_dir), args.inference_only)
+        
         # Validate input files
         if verbose:
-            logger.info("🔍 Validating input files...")
+            logger.info(f"🔍 Validating input files... (Mode: {mode_info['mode']})")
         
-        validation = generator.validate_input_data_comprehensive(Path(args.input_dir))
+        validation = generator.validate_input_data_comprehensive(Path(args.input_dir), mode_info)
         
         if not validation['valid']:
-            logger.error("❌ Input validation failed")
+            logger.error(f"❌ Input validation failed for {mode_info['mode']} mode")
             logger.error("💡 Suggestions:")
-            logger.error("   1. Run preprocessing first: python scripts/preprocess.py")
-            logger.error(f"   2. Check that CSV files exist in: {args.input_dir}")
-            logger.error("   3. Verify CSV files have 'text' and 'label' columns")
+            
+            if mode_info['mode'] == 'inference':
+                logger.error("   1. For inference mode, ensure you have:")
+                logger.error("      • inference.csv with 'text' column, OR")
+                logger.error("      • test.csv with 'text' column")
+                logger.error("   2. Labels are optional in inference mode")
+            else:
+                logger.error("   1. For training mode, run preprocessing first: python scripts/preprocess.py")
+                logger.error(f"   2. Check that CSV files exist in: {args.input_dir}")
+                logger.error("   3. Verify CSV files have 'text' and 'label' columns")
             
             if validation.get('directory_missing'):
                 logger.error(f"   4. Create directory structure first")
@@ -1140,21 +1422,24 @@ Examples:
             # Show label balance warnings if any
             for filename, balance_info in validation.get('label_balance', {}).items():
                 for warning in balance_info.get('balance_warnings', []):
-                    logger.error(f"   Label issue in {filename}: {warning}")
+                    if 'inference mode' not in warning:  # Don't show inference mode warnings as errors
+                        logger.error(f"   Label issue in {filename}: {warning}")
             
             return 1
         
         if args.validate_only:
-            logger.info("✅ Validation completed successfully!")
+            logger.info(f"✅ Validation completed successfully! (Mode: {mode_info['mode']})")
             logger.info(f"   📊 Total samples: {validation['total_samples']:,}")
             for filename, details in validation['file_details'].items():
-                logger.info(f"   📊 {filename}: {details['samples']:,} samples")
+                label_info = "🏷️" if details['has_labels'] else "🔍"
+                logger.info(f"   📊 {filename}: {details['samples']:,} samples {label_info}")
                 
                 # Show label balance info
                 balance_info = details.get('label_balance', {})
                 if balance_info.get('balance_warnings'):
                     for warning in balance_info['balance_warnings']:
-                        logger.warning(f"      ⚠️ {warning}")
+                        if 'inference mode' not in warning:
+                            logger.warning(f"      ⚠️ {warning}")
             return 0
         
         # Generate embeddings
@@ -1164,7 +1449,8 @@ Examples:
             model_name=args.model_name,
             batch_size=args.batch_size,
             max_length=args.max_length,
-            force_recreate=args.force_recreate
+            force_recreate=args.force_recreate,
+            inference_only=args.inference_only
         )
         
         return 0 if results['success'] else 1
