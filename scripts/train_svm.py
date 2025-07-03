@@ -745,7 +745,7 @@ Examples:
         """
     )
     
-    # Required arguments (may be None when --auto-default is used)
+    # Required arguments (fallback to defaults if not provided)
     parser.add_argument("--embeddings-dir", type=str, default=None,
                        help="Directory containing embedding files (.npy)")
     parser.add_argument("--output-dir", type=str, default=None,
@@ -774,8 +774,6 @@ Examples:
     # Logging options
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: output-dir/logs)")
-    parser.add_argument("--auto-default", action="store_true",
-                       help="Use default embeddings and output paths if not provided")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress output except errors")
     
@@ -787,24 +785,33 @@ def main():
 
     project_root = Path(__file__).resolve().parents[1]
 
-    if args.auto_default:
-        if not args.embeddings_dir:
-            default_embed = project_root / "data" / "embeddings"
-            print(f"⚠️ No embeddings-dir provided. Using default: {default_embed}")
-            args.embeddings_dir = str(default_embed)
+    no_args_provided = len(sys.argv) == 1
 
-        if not args.output_dir:
-            default_results = project_root / "results"
-            print(f"⚠️ No output-dir provided. Using default: {default_results}")
-            args.output_dir = str(default_results)
+    embeddings_provided = args.embeddings_dir is not None
+    output_provided = args.output_dir is not None
 
-    if not args.embeddings_dir or not args.output_dir:
-        print("❌ Please provide --embeddings-dir and --output-dir, or use --auto-default for fallback.")
-        sys.exit(1)
-    
+    if not args.embeddings_dir:
+        args.embeddings_dir = str(project_root / "data" / "embeddings")
+
+    if not args.output_dir:
+        args.output_dir = str(project_root / "results")
+
+    if no_args_provided:
+        args.fast = True
+
     # Setup logging
     log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
     logger = setup_logging(log_dir)
+
+    if no_args_provided:
+        logger.warning("⚠️ No arguments provided. Using default embeddings and output directories.")
+
+    # Fallback automatico se non specificato
+    if not embeddings_provided:
+        logger.warning("⚠️ No --embeddings-dir provided. Using default: data/embeddings")
+
+    if not output_provided:
+        logger.warning("⚠️ No --output-dir provided. Using default: results")
     
     # Show warnings for unused parameters
     if args.epochs is not None:
