@@ -34,6 +34,16 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+# Dynamic project root detection for flexible execution
+try:
+    CURRENT_FILE = Path(__file__).resolve()
+    if CURRENT_FILE.parent.name == 'scripts':
+        PROJECT_ROOT = CURRENT_FILE.parent.parent
+    else:
+        PROJECT_ROOT = CURRENT_FILE.parent
+except Exception:
+    PROJECT_ROOT = Path.cwd()
+
 def setup_logging(log_dir):
     """Setup logging configuration"""
     log_dir = Path(log_dir)
@@ -939,12 +949,12 @@ Examples:
         """
     )
     
-    # Required arguments
-    parser.add_argument("--models-dir", type=str, required=True,
+    # Required arguments (now optional with fallback)
+    parser.add_argument("--models-dir", type=str, default=None,
                        help="Directory containing trained models")
-    parser.add_argument("--test-data", type=str, required=True,
+    parser.add_argument("--test-data", type=str, default=None,
                        help="Path to test data (CSV with text/label columns or X_test.npy)")
-    parser.add_argument("--results-dir", type=str, required=True,
+    parser.add_argument("--results-dir", type=str, default=None,
                        help="Directory to save reports and plots")
     
     # Optional arguments
@@ -952,27 +962,52 @@ Examples:
                        help="Specific model type to evaluate (default: all)")
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: results-dir/logs)")
+    parser.add_argument("--auto-default", action="store_true",
+                       help="Use default paths if no arguments are provided")
     
     return parser.parse_args()
 
 def main():
     """Main function for CLI usage"""
     args = parse_arguments()
-    
-    # Setup logging
-    log_dir = args.log_dir if args.log_dir else Path(args.results_dir) / "logs"
+
+    project_root = PROJECT_ROOT
+
+    # Determine initial results directory for logging setup
+    default_results = project_root / "results"
+    results_for_logging = args.results_dir if args.results_dir else str(default_results)
+    log_dir = args.log_dir if args.log_dir else Path(results_for_logging) / "logs"
     logger = setup_logging(log_dir)
-    
+
+    # Apply fallback defaults when arguments are missing
+    if not args.models_dir:
+        default_models = project_root / "results" / "models"
+        if args.auto_default or default_models.exists():
+            logger.warning(f"⚠️ No models-dir provided. Using default: {default_models}")
+            args.models_dir = str(default_models)
+
+    if not args.test_data:
+        default_test = project_root / "data" / "processed" / "test.csv"
+        if args.auto_default or default_test.exists():
+            logger.warning(f"⚠️ No test-data provided. Using default: {default_test}")
+            args.test_data = str(default_test)
+
+    if not args.results_dir:
+        if args.auto_default or default_results.exists():
+            logger.warning(f"⚠️ No results-dir provided. Using default: {default_results}")
+            args.results_dir = str(default_results)
+
     try:
         # Verify inputs
         models_dir = Path(args.models_dir)
         test_data_path = Path(args.test_data)
-        
+
         if not models_dir.exists():
             raise FileNotFoundError(f"Models directory not found: {models_dir}")
-        
+
         if not test_data_path.exists():
-            raise FileNotFoundError(f"Test data not found: {test_data_path}")
+            logger.error("❌ test.csv not found. Provide --test-data or ensure fallback file exists.")
+            return 1
         
         # Run report generation pipeline
         result = generate_evaluation_report(
@@ -1012,19 +1047,4 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    # Determine project root for legacy compatibility  
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent if current_dir.name == 'scripts' else current_dir
-    
-    # If called without arguments, show help
-    if len(sys.argv) == 1:
-        print("Report Generation Script - Pipeline Compatible")
-        print("=" * 50)
-        print("This script requires arguments. Use --help for options.")
-        print("\nQuick start:")
-        print("  python report.py --models-dir results/models --test-data data/processed/test.csv --results-dir results")
-        print("  python report.py --help")
-        sys.exit(1)
-    else:
-        # Use CLI mode
-        sys.exit(main())
+    sys.exit(main())
