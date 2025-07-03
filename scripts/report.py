@@ -51,12 +51,19 @@ def setup_logging(log_dir):
     
     log_file = log_dir / f"report_generation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
+    # Use utf-8 for the stream handler to avoid cp1252 errors on Windows
+    stream_handler = logging.StreamHandler(sys.stdout)
+    try:
+        stream_handler.stream.reconfigure(encoding="utf-8")
+    except AttributeError:
+        pass  # Python < 3.7 doesn't support reconfigure
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
+            logging.FileHandler(log_file, encoding="utf-8"),
+            stream_handler
         ]
     )
     
@@ -996,6 +1003,11 @@ def main():
         if args.auto_default or default_results.exists():
             logger.warning(f"⚠️ No results-dir provided. Using default: {default_results}")
             args.results_dir = str(default_results)
+
+    # If any critical argument is still missing, exit gracefully
+    if not all([args.models_dir, args.test_data, args.results_dir]):
+        logger.error("❌ Missing critical arguments and fallback paths are not valid. Provide --models-dir, --test-data, or enable --auto-default.")
+        return 1
 
     try:
         # Verify inputs
