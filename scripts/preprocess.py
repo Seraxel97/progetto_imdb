@@ -859,6 +859,8 @@ Examples:
     # Output options
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument('--quiet', '-q', action='store_true', help='Suppress non-essential output')
+    parser.add_argument('--auto-default', action='store_true',
+                        help='Automatically use default IMDb dataset if no input given')
     
     # Parse arguments (handle sys.argv injection)
     if argv is None:
@@ -876,10 +878,19 @@ Examples:
         # Determine input and output paths
         input_path = args.file or args.input or args.imdb
         output_path = args.output_dir or args.output
-        
+
         if not input_path:
-            logger.error("❌ No input file specified. Use --file, --input, or --imdb")
-            return 1
+            default_path = PROJECT_ROOT / "data" / "raw" / "imdb_raw.csv"
+            if args.auto_default or default_path.exists():
+                if default_path.exists():
+                    logger.warning(f"⚠️ No input specified. Defaulting to: {default_path}")
+                    input_path = str(default_path)
+                else:
+                    logger.error("❌ No input provided and default dataset not found at 'data/raw/imdb_raw.csv'")
+                    return 1
+            else:
+                logger.error("❌ No input file specified. Use --file, --input, or --imdb")
+                return 1
         
         # Handle IMDb mode for backward compatibility
         if args.imdb:
