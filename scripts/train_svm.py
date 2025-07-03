@@ -775,7 +775,7 @@ Examples:
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: output-dir/logs)")
     parser.add_argument("--auto-default", action="store_true",
-                       help="Use default embeddings and results paths")
+                       help="Use default embeddings and output paths if not provided")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress output except errors")
     
@@ -790,12 +790,12 @@ def main():
     if args.auto_default:
         if not args.embeddings_dir:
             default_embed = project_root / "data" / "embeddings"
-            print(f"[⚠️] No embeddings-dir provided. Using default: {default_embed}")
+            print(f"⚠️ No embeddings-dir provided. Using default: {default_embed}")
             args.embeddings_dir = str(default_embed)
 
         if not args.output_dir:
             default_results = project_root / "results"
-            print(f"[⚠️] No output-dir provided. Using default: {default_results}")
+            print(f"⚠️ No output-dir provided. Using default: {default_results}")
             args.output_dir = str(default_results)
 
     if not args.embeddings_dir or not args.output_dir:
@@ -845,19 +845,4 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    # Determine project root for legacy compatibility
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent if current_dir.name == 'scripts' else current_dir
-    
-    # If called without arguments, show help
-    if len(sys.argv) == 1:
-        print("SVM Training Script - Pipeline Compatible")
-        print("=" * 50)
-        print("This script requires arguments. Use --help for options.")
-        print("\nQuick start:")
-        print("  python train_svm.py --embeddings-dir data/embeddings --output-dir results")
-        print("  python train_svm.py --help")
-        sys.exit(1)
-    else:
-        # Use CLI mode
-        sys.exit(main())
+    sys.exit(main())
