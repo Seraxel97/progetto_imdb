@@ -342,24 +342,24 @@ class PipelineRunner:
             }
             
             if not auto_results.get('overall_success', False):
-                error_msg = auto_results.get('error', 'Auto pipeline failed')
+                error_msg = auto_results.get('errors', ['Auto pipeline failed'])[0]
                 logger.error(f"❌ Automated pipeline failed: {error_msg}")
                 results['error'] = error_msg
-                results['session_directory'] = auto_results.get('session_directory')
+                results['session_directory'] = auto_results.get('session_directory') or auto_results.get('session_dir')
                 return results
             
             # Step 3: Extract and organize results for GUI
             logger.info("📊 Organizing results for GUI integration...")
             
-            session_dir = auto_results.get('session_directory')
+            session_dir = auto_results.get('session_directory') or auto_results.get('session_dir')
             results['session_directory'] = session_dir
-            
+
             # Organize final results
             results['final_results'] = {
-                'predictions': auto_results.get('gui_predictions', {}),
-                'metrics': auto_results.get('gui_metrics', {}),
-                'insights': auto_results.get('insights', []),
-                'test_data_info': auto_results.get('test_data', {}),
+                'predictions_file': auto_results.get('predictions'),
+                'report_pdf': auto_results.get('report_pdf'),
+                'summary_file': auto_results.get('summary_file'),
+                'plots': auto_results.get('plots', []),
                 'session_directory': session_dir,
                 'pipeline_steps': auto_results.get('steps', {})
             }
@@ -371,8 +371,8 @@ class PipelineRunner:
                 # Create summary report
                 self.create_pipeline_summary_report(results, session_dir)
                 
-                # Log success metrics
-                if results['final_results']['metrics']:
+                # Log success metrics if available
+                if results['final_results'].get('metrics'):
                     for model_name, metrics in results['final_results']['metrics'].items():
                         accuracy = metrics.get('accuracy', 0)
                         f1 = metrics.get('f1_score', 0)
