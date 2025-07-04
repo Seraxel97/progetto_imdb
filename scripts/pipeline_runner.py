@@ -331,7 +331,7 @@ class PipelineRunner:
             logger.info("🔄 Executing complete automated pipeline...")
             
             auto_results = auto_embed_and_predict(
-                file_path=input_csv_path,
+                csv_path=input_csv_path,
                 fast_mode=fast_mode,
                 save_intermediate=True
             )
