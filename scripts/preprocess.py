@@ -232,6 +232,7 @@ def preprocess_dataset(input_file, output_dir, logger):
     
     # Normalize labels if present
     dataset_size = len(df_processed)
+    inference_only = False
 
     if 'label' in df_processed.columns:
         logger.info("🏷️ Processing labels...")
@@ -264,11 +265,27 @@ def preprocess_dataset(input_file, output_dir, logger):
         else:
             logger.info(f"✅ Balanced dataset: {balance_ratio:.3f} ratio")
 
+    # Determine if we have enough data for training
+    if ('label' not in df_processed.columns or
+            df_processed['label'].nunique() < 2 or
+            dataset_size < 10):
+        logger.warning("🚫 Skipping training — No label column or not enough samples")
+        inference_only = True
+
     # Create train/validation/test splits
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if dataset_size < 3:
+    if inference_only:
+        inference_path = output_dir / "inference.csv"
+        df_processed.to_csv(inference_path, index=False)
+        logger.info(f"💾 Saved inference CSV for inference-only mode: {inference_path}")
+        split_info = {
+            'inference': len(df_processed),
+            'strategy': 'inference_only'
+        }
+        train_df = val_df = test_df = df_processed.copy()
+    elif dataset_size < 3:
         logger.warning("⚠️ Dataset too small for splitting. Replicating data in all sets.")
         train_df = df_processed.copy()
         val_df = df_processed.copy()
@@ -327,19 +344,20 @@ def preprocess_dataset(input_file, output_dir, logger):
             'strategy': 'random'
         }
     
-    # Save splits
+    # Save splits or inference file
     train_path = output_dir / "train.csv"
     val_path = output_dir / "val.csv"
     test_path = output_dir / "test.csv"
-    
-    train_df.to_csv(train_path, index=False)
-    val_df.to_csv(val_path, index=False)
-    test_df.to_csv(test_path, index=False)
-    
-    logger.info(f"💾 Saved splits:")
-    logger.info(f"   📄 Train: {train_path} ({len(train_df)} samples)")
-    logger.info(f"   📄 Val: {val_path} ({len(val_df)} samples)")
-    logger.info(f"   📄 Test: {test_path} ({len(test_df)} samples)")
+
+    if not inference_only:
+        train_df.to_csv(train_path, index=False)
+        val_df.to_csv(val_path, index=False)
+        test_df.to_csv(test_path, index=False)
+
+        logger.info(f"💾 Saved splits:")
+        logger.info(f"   📄 Train: {train_path} ({len(train_df)} samples)")
+        logger.info(f"   📄 Val: {val_path} ({len(val_df)} samples)")
+        logger.info(f"   📄 Test: {test_path} ({len(test_df)} samples)")
     
     # Create metadata
     metadata = {
@@ -354,12 +372,18 @@ def preprocess_dataset(input_file, output_dir, logger):
             'label_column_used': format_info['label_column']
         },
         'dataset_splits': split_info,
-        'file_paths': {
+        'file_paths': {},
+        'inference_only': inference_only
+    }
+
+    if inference_only:
+        metadata['file_paths']['inference'] = str(inference_path)
+    else:
+        metadata['file_paths'].update({
             'train': str(train_path),
             'val': str(val_path),
             'test': str(test_path)
-        }
-    }
+        })
     
     if 'label' in df_processed.columns:
         metadata['label_info'] = {
@@ -388,18 +412,26 @@ def preprocess_dataset(input_file, output_dir, logger):
     logger.info(f"   📝 Average words: {word_counts.mean():.1f}")
     logger.info(f"   📝 Median words: {word_counts.median():.1f}")
     
+    output_files = {
+        'metadata': str(metadata_path)
+    }
+    if inference_only:
+        output_files['inference'] = str(inference_path)
+    else:
+        output_files.update({
+            'train': str(train_path),
+            'val': str(val_path),
+            'test': str(test_path)
+        })
+
     return {
         'success': True,
         'original_samples': original_count,
         'final_samples': cleaned_count,
         'removed_samples': removed_count,
         'split_info': split_info,
-        'output_files': {
-            'train': str(train_path),
-            'val': str(val_path),
-            'test': str(test_path),
-            'metadata': str(metadata_path)
-        },
+        'inference_only': inference_only,
+        'output_files': output_files,
         'text_stats': {
             'avg_length': float(text_lengths.mean()),
             'median_length': float(text_lengths.median()),
