@@ -231,6 +231,8 @@ def preprocess_dataset(input_file, output_dir, logger):
     logger.info(f"📊 Final dataset size: {cleaned_count} samples")
     
     # Normalize labels if present
+    dataset_size = len(df_processed)
+
     if 'label' in df_processed.columns:
         logger.info("🏷️ Processing labels...")
         
@@ -261,12 +263,23 @@ def preprocess_dataset(input_file, output_dir, logger):
             logger.warning(f"⚠️ Imbalanced dataset: {balance_ratio:.3f} ratio")
         else:
             logger.info(f"✅ Balanced dataset: {balance_ratio:.3f} ratio")
-    
+
     # Create train/validation/test splits
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    if 'label' in df_processed.columns:
+
+    if dataset_size < 3:
+        logger.warning("⚠️ Dataset too small for splitting. Replicating data in all sets.")
+        train_df = df_processed.copy()
+        val_df = df_processed.copy()
+        test_df = df_processed.copy()
+        split_info = {
+            'train': len(train_df),
+            'val': len(val_df),
+            'test': len(test_df),
+            'strategy': 'no_split'
+        }
+    elif 'label' in df_processed.columns:
         logger.info("📂 Creating stratified train/val/test splits (70/15/15)...")
         
         # First split: 70% train, 30% temp

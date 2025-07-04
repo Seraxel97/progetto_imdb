@@ -125,7 +125,9 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
         "summary_file": None,
         "report_pdf": None,
         "plots": [],
-        "predictions": None
+        "predictions": None,
+        "session_directory": None,
+        "overall_success": False
     }
     
     start_time = time.time()
@@ -147,16 +149,19 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
         session_dir = Path(session_dir)
         session_dir.mkdir(parents=True, exist_ok=True)
         results["session_dir"] = str(session_dir)
+        results["session_directory"] = str(session_dir)
         
         # Create subdirectories
         subdirs = ["processed", "embeddings", "models", "reports", "plots"]
         for subdir in subdirs:
             (session_dir / subdir).mkdir(exist_ok=True)
         
-        # Setup logging for this session
+        # Setup logging for this session (use UTF-8 to avoid emoji issues)
         log_file = session_dir / "pipeline.log"
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        )
         logger.addHandler(file_handler)
         
         logger.info(f"Starting automated pipeline for {input_file}")
@@ -303,8 +308,9 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
             results["status"] = "partial_success"
         else:
             results["status"] = "failed"
-        
+
         results["total_duration"] = time.time() - start_time
+        results["overall_success"] = results["status"] == "success"
         
         logger.info(f"Pipeline completed with status: {results['status']}")
         logger.info(f"Total duration: {results['total_duration']:.2f} seconds")
