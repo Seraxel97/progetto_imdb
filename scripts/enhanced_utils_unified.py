@@ -259,8 +259,11 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
             "name": "report",
             "command": [
                 sys.executable, "scripts/report.py",
-                "--input-dir", str(session_dir),
-                "--output-dir", str(session_dir / "reports")
+                "--models-dir", str(session_dir / "models"),
+                "--test-data", str(session_dir / "processed" / "test.csv"),
+                "--results-dir", str(session_dir / "reports"),
+                "--model-type", "all",
+                "--auto-default"
             ],
             "timeout": 300
         })

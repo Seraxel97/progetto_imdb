@@ -1059,4 +1059,21 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(description="Generate sentiment analysis report.")
+    parser.add_argument('--models-dir', required=True)
+    parser.add_argument('--test-data', required=True)
+    parser.add_argument('--results-dir', required=True)
+    parser.add_argument('--model-type', choices=['mlp', 'svm', 'all'], default='all')
+    parser.add_argument('--log-dir', default=None)
+    parser.add_argument('--auto-default', action='store_true')
+    args = parser.parse_args()
+
+    log_dir = args.log_dir if args.log_dir else Path(args.results_dir) / "logs"
+    logger = setup_logging(log_dir)
+    result = generate_evaluation_report(
+        models_dir=args.models_dir,
+        test_data=args.test_data,
+        results_dir=args.results_dir,
+        logger=logger
+    )
+    sys.exit(0 if result.get('success') else 1)

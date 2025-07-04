@@ -286,15 +286,14 @@ def preprocess_dataset(input_file, output_dir, logger):
         }
         train_df = val_df = test_df = df_processed.copy()
     elif dataset_size < 3:
-        logger.warning("⚠️ Dataset too small for splitting. Replicating data in all sets.")
-        train_df = df_processed.copy()
-        val_df = df_processed.copy()
-        test_df = df_processed.copy()
-        split_info = {
-            'train': len(train_df),
-            'val': len(val_df),
-            'test': len(test_df),
-            'strategy': 'no_split'
+        logger.warning("⚠️ Not enough samples for full train/val/test split. Skipping split.")
+        df_processed.to_csv(output_dir / "test.csv", index=False)
+        return {
+            "status": "warning",
+            "message": "Too few samples. Only test.csv created.",
+            "output_files": {
+                "test": str(output_dir / "test.csv")
+            }
         }
     elif 'label' in df_processed.columns:
         logger.info("📂 Creating stratified train/val/test splits (70/15/15)...")

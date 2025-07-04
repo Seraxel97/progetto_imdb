@@ -667,6 +667,19 @@ def main():
             
             # Carica dataset principale
             main_df, main_dataset_path, dataset_error = load_main_dataset()
+
+            # Analisi automatica del test set all'avvio
+            auto_pipeline = None
+            auto_analysis = None
+            default_test = PROCESSED_DATA_DIR / "test.csv"
+            if PIPELINE_AVAILABLE and default_test.exists():
+                auto_pipeline = run_complete_csv_analysis(str(default_test))
+                auto_analysis = run_dataset_analysis(str(default_test))
+                st.session_state['auto_results'] = {
+                    'pipeline': auto_pipeline,
+                    'analysis': auto_analysis,
+                    'path': str(default_test)
+                }
         
         # === SIDEBAR INFORMAZIONI ===
         with st.sidebar:
@@ -732,6 +745,23 @@ def main():
         with tab1:
             st.markdown('<div class="scientific-section">', unsafe_allow_html=True)
             st.header("Comprehensive Dataset Analysis with REAL Pipeline")
+
+            if 'auto_results' in st.session_state:
+                auto_pipeline = st.session_state['auto_results']['pipeline']
+                auto_analysis = st.session_state['auto_results']['analysis']
+                st.subheader("Automatic Analysis of test.csv")
+                display_pipeline_results(auto_pipeline)
+
+                try:
+                    if auto_analysis and 'text_analysis' in auto_analysis:
+                        col_used = auto_analysis['text_analysis']['column_used']
+                        words = ' '.join(main_df[col_used].astype(str)).lower().split()
+                        common_words = Counter(words).most_common(20)
+                        word_df = pd.DataFrame(common_words, columns=['Word', 'Count'])
+                        fig_words = px.bar(word_df, x='Word', y='Count', title='Most Used Words')
+                        st.plotly_chart(fig_words, use_container_width=True)
+                except Exception:
+                    pass
             
             if not PIPELINE_AVAILABLE:
                 st.error("❌ Real pipeline not available. Check pipeline_runner.py import.")
@@ -1025,10 +1055,32 @@ def main():
                         
                         if all_files:
                             st.info(f"📄 Total files: {len(all_files)}")
-                            
+
                             with st.expander("View all generated files"):
                                 for file_path in sorted(all_files):
                                     st.text(f"• {file_path}")
+
+                        # Download buttons for key results
+                        final_results = pipeline_results.get('final_results', {})
+                        download_map = {
+                            'Predictions CSV': final_results.get('predictions_file'),
+                            'Report PDF': final_results.get('report_pdf'),
+                            'Summary TXT': final_results.get('summary_file')
+                        }
+                        log_file = session_path / 'pipeline.log'
+                        if log_file.exists():
+                            download_map['Log File'] = str(log_file)
+
+                        if download_map:
+                            st.subheader("Download Files")
+                            for label, path in download_map.items():
+                                if path and Path(path).exists():
+                                    with open(path, 'rb') as f:
+                                        st.download_button(
+                                            label=f"Download {label}",
+                                            data=f.read(),
+                                            file_name=Path(path).name
+                                        )
                     
                     # Export caratteristiche
                     st.subheader("Export Package Features")
