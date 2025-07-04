@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Sistema di Analisi Sentiment - GUI Finale Scientifica - FIXED VERSION
+Sistema di Analisi Sentiment - GUI Finale Scientifica - FIXED IMPORT VERSION
 Interfaccia professionale con 3 sezioni principali per analisi rigorosa del sentiment.
 
 🔧 FIXES APPLIED:
-- ✅ Import pipeline_runner functions
-- ✅ Button callbacks now call REAL pipeline functions
+- ✅ Fixed import pipeline_runner functions with proper error handling
+- ✅ Button callbacks now call REAL pipeline functions that exist
 - ✅ Creates proper results/session_<timestamp>/ structure
-- ✅ Uses enhanced_utils_unified.py through pipeline_runner
-- ✅ Invokes embed_dataset.py, train_mlp.py, train_svm.py, report.py
+- ✅ Enhanced error handling for missing dependencies
+- ✅ Improved path detection and logging
 - ✅ Real progress tracking and result feedback
 
 CARATTERISTICHE FINALI:
@@ -71,7 +71,7 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.append(str(SCRIPTS_DIR))
 
-# === 🔧 FIXED: IMPORT PIPELINE RUNNER FUNCTIONS ===
+# === 🔧 FIXED: IMPORT PIPELINE RUNNER FUNCTIONS CON ERROR HANDLING ===
 try:
     from scripts.pipeline_runner import (
         run_complete_csv_analysis, 
@@ -84,11 +84,28 @@ except ImportError as e:
     PIPELINE_AVAILABLE = False
     st.error(f"❌ Pipeline import failed: {e}")
     st.info("🔧 Make sure pipeline_runner.py is in scripts/ directory")
+    
+    # Provide fallback functions to prevent crashes
+    def run_complete_csv_analysis(csv_path, text_column='text', label_column='label'):
+        return {
+            'success': False,
+            'error': 'Pipeline functions not available',
+            'fallback': True
+        }
+    
+    def run_dataset_analysis(csv_path):
+        return {
+            'success': False,
+            'error': 'Pipeline functions not available',
+            'fallback': True
+        }
 
 # === IMPORT SICURO DEGLI UTILS ===
 try:
     from scripts.enhanced_utils_unified import *
+    UTILS_AVAILABLE = True
 except ImportError:
+    UTILS_AVAILABLE = False
     # Fallback: definisci funzioni essenziali
     def clean_text(text):
         if not isinstance(text, str):
@@ -105,7 +122,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS scientifico e professionale (senza emoji)
+# CSS scientifico e professionale
 st.markdown("""
 <style>
     .main-header {
@@ -662,6 +679,13 @@ def main():
             else:
                 st.error("❌ Pipeline Not Available")
                 st.info("Check pipeline_runner.py import")
+            
+            # Utils status
+            st.subheader("Utils Status")
+            if UTILS_AVAILABLE:
+                st.success("✅ Enhanced Utils Available")
+            else:
+                st.warning("⚠️ Enhanced Utils Not Available")
             
             # Percorsi
             st.subheader("Project Structure")
