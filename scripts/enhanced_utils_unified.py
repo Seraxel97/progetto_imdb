@@ -172,54 +172,98 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
         original_cwd = os.getcwd()
         os.chdir(project_root)
         
-        # Define pipeline steps
-        pipeline_steps = [
-            {
-                "name": "preprocessing",
-                "command": [
-                    sys.executable, "scripts/preprocess.py",
-                    "--input", str(input_file),
-                    "--output-dir", str(session_dir / "processed")
-                ],
-                "timeout": 300
-            },
-            {
-                "name": "embedding",
-                "command": [
-                    sys.executable, "scripts/embed_dataset.py",
-                    "--input-dir", str(session_dir / "processed"),
-                    "--output-dir", str(session_dir / "embeddings")
-                ],
-                "timeout": 600
-            },
-            {
-                "name": "mlp_training",
-                "command": [
-                    sys.executable, "scripts/train_mlp.py",
-                    "--embeddings-dir", str(session_dir / "embeddings"),
-                    "--output-dir", str(session_dir / "models")
-                ],
-                "timeout": 900
-            },
-            {
-                "name": "svm_training",
-                "command": [
-                    sys.executable, "scripts/train_svm.py",
-                    "--embeddings-dir", str(session_dir / "embeddings"),
-                    "--output-dir", str(session_dir / "models")
-                ] + (["--fast"] if fast_mode else []),
-                "timeout": 600
-            },
-            {
-                "name": "report",
-                "command": [
-                    sys.executable, "scripts/report.py",
-                    "--input-dir", str(session_dir),
-                    "--output-dir", str(session_dir / "reports")
-                ],
-                "timeout": 300
-            }
+        # ----- Step 1: preprocessing -----
+        preprocess_cmd = [
+            sys.executable, "scripts/preprocess.py",
+            "--input", str(input_file),
+            "--output-dir", str(session_dir / "processed")
         ]
+        step_result = run_subprocess_with_timeout(preprocess_cmd, timeout=300, cwd=project_root)
+        results["steps"]["preprocessing"] = {
+            "status": "completed" if step_result["success"] else "failed",
+            "duration": step_result["duration"],
+            "returncode": step_result["returncode"]
+        }
+
+        inference_only = False
+        if step_result["success"]:
+            meta_file = session_dir / "processed" / "preprocessing_metadata.json"
+            try:
+                if meta_file.exists():
+                    with open(meta_file, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                    inference_only = bool(meta.get("inference_only", False))
+                else:
+                    inference_only = (session_dir / "processed" / "inference.csv").exists()
+            except Exception as e:
+                logger.warning(f"Could not determine inference mode: {e}")
+
+        results["inference_only"] = inference_only
+
+        if not step_result["success"]:
+            logger.error(f"Preprocessing failed: {step_result['stderr']}")
+
+        # ----- Remaining pipeline steps -----
+        pipeline_steps = []
+
+        embed_cmd = [
+            sys.executable, "scripts/embed_dataset.py",
+            "--input-dir", str(session_dir / "processed"),
+            "--output-dir", str(session_dir / "embeddings")
+        ]
+        if inference_only:
+            embed_cmd.append("--inference-only")
+
+        pipeline_steps.append({
+            "name": "embedding",
+            "command": embed_cmd,
+            "timeout": 600
+        })
+
+        if not inference_only:
+            pipeline_steps.extend([
+                {
+                    "name": "mlp_training",
+                    "command": [
+                        sys.executable, "scripts/train_mlp.py",
+                        "--embeddings-dir", str(session_dir / "embeddings"),
+                        "--output-dir", str(session_dir / "models")
+                    ],
+                    "timeout": 900
+                },
+                {
+                    "name": "svm_training",
+                    "command": [
+                        sys.executable, "scripts/train_svm.py",
+                        "--embeddings-dir", str(session_dir / "embeddings"),
+                        "--output-dir", str(session_dir / "models")
+                    ] + (["--fast"] if fast_mode else []),
+                    "timeout": 600
+                }
+            ])
+        else:
+            # Mark training steps as skipped
+            results["steps"]["mlp_training"] = {
+                "status": "skipped",
+                "duration": 0,
+                "returncode": None
+            }
+            results["steps"]["svm_training"] = {
+                "status": "skipped",
+                "duration": 0,
+                "returncode": None
+            }
+            logger.info("Training skipped due to missing labels")
+
+        pipeline_steps.append({
+            "name": "report",
+            "command": [
+                sys.executable, "scripts/report.py",
+                "--input-dir", str(session_dir),
+                "--output-dir", str(session_dir / "reports")
+            ],
+            "timeout": 300
+        })
         
         # Execute pipeline steps
         for step in pipeline_steps:
@@ -284,7 +328,10 @@ def auto_embed_and_predict(file_path: str = None, csv_path: str = None, session_
             f.write("=== PIPELINE STEPS ===\n")
             for step_name, step_info in results["steps"].items():
                 f.write(f"{step_name}: {step_info['status']} ({step_info['duration']:.2f}s)\n")
-            
+
+            if inference_only:
+                f.write("\nTraining skipped due to missing labels\n")
+
             if results["errors"]:
                 f.write("\n=== ERRORS ===\n")
                 for error in results["errors"]:

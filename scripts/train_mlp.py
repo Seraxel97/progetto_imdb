@@ -503,6 +503,11 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
         
         if not output_dir:
             output_dir = determine_output_dir(session_dir=session_dir)
+
+        train_path = Path(embeddings_dir) / "X_train.npy"
+        val_path = Path(embeddings_dir) / "X_val.npy"
+        if not train_path.exists() or not val_path.exists():
+            raise ValueError("Training data not found. Ensure preprocessing created valid train/val files.")
         
         output_dir = Path(output_dir)
         models_dir = output_dir / "models"
