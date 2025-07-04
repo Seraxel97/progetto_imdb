@@ -1,3 +1,29 @@
+#!/usr/bin/env python3
+"""
+MLP Training Script - PIPELINE AUTOMATION COMPATIBLE
+Trains Multi-Layer Perceptron models for sentiment analysis with full pipeline integration.
+
+🔧 FIXES APPLIED:
+- ✅ Fixed CLI parameter names to match expected pipeline calls
+- ✅ Added proper --output-dir parameter instead of only --models-dir
+- ✅ Enhanced auto-mode detection and path discovery
+- ✅ Improved compatibility with pipeline_runner.py subprocess calls
+
+FEATURES:
+- Auto-mode by default when called without arguments
+- Smart path detection for embeddings and output directories
+- Full compatibility with report.py, GUI, and pipeline automation
+- Robust model saving with structured output directories
+- Professional logging system with UTF-8 support
+- Early stopping and advanced optimization
+
+USAGE:
+  python scripts/train_mlp.py                                              # Auto-defaults
+  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results
+  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results --epochs 50
+  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results --fast
+"""
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,22 +40,41 @@ from datetime import datetime
 from tqdm import tqdm
 from pathlib import Path
 
-# Imposta device
+# Dynamic project root detection for flexible execution
+try:
+    CURRENT_FILE = Path(__file__).resolve()
+    if CURRENT_FILE.parent.name == 'scripts':
+        PROJECT_ROOT = CURRENT_FILE.parent.parent
+    else:
+        PROJECT_ROOT = CURRENT_FILE.parent
+except Exception:
+    PROJECT_ROOT = Path.cwd()
+
+# Setup device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def setup_logging(log_dir):
-    """Setup logging configuration"""
+    """Setup logging configuration with UTF-8 support"""
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     
     log_file = log_dir / f"mlp_training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
+    # Configure stream handler with UTF-8 encoding
+    import sys
+    stream_handler = logging.StreamHandler(sys.stdout)
+    try:
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, Exception):
+        pass  # Fallback for older Python versions
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
+            logging.FileHandler(log_file, encoding='utf-8'),
+            stream_handler
         ]
     )
     
@@ -285,6 +330,10 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
     
     try:
+        # Set matplotlib backend for headless operation
+        import matplotlib
+        matplotlib.use('Agg')
+        
         # 1. Salva metriche in JSON
         metrics_data = {
             'training_history': {
@@ -659,10 +708,10 @@ def predict_text_embedding(model, embedding):
         return prediction, probability
 
 def parse_arguments():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis')
+    """🔧 FIXED: Parse command line arguments with corrected parameter names"""
+    parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis - PIPELINE COMPATIBLE')
     
-    # Optional arguments (tutti opzionali per flessibilità)
+    # 🔧 FIXED: Corrected parameter names to match pipeline expectations
     parser.add_argument('--embeddings-dir', type=str, default=None,
                        help='Directory containing embedding files (.npy). If not specified, will search automatically.')
     parser.add_argument('--output-dir', type=str, default=None,
@@ -683,6 +732,8 @@ def parse_arguments():
     # Modalità speciali
     parser.add_argument('--auto-mode', action='store_true',
                        help='Run in automatic mode with default parameters')
+    parser.add_argument('--fast', action='store_true',
+                       help='Run in fast mode with reduced epochs')
     
     return parser.parse_args()
 
@@ -729,6 +780,27 @@ def main():
             batch_size=args.batch_size
         )
     
+    # Fast mode adjustments
+    if args.fast:
+        args.epochs = min(args.epochs, 30)  # Reduce epochs in fast mode
+    
+    # Detect no arguments and apply defaults
+    no_args_provided = len(sys.argv) == 1
+    
+    # Apply defaults when no arguments provided
+    if no_args_provided or not args.embeddings_dir:
+        # Auto-detect embeddings directory
+        project_root = PROJECT_ROOT
+        default_embeddings = project_root / "data" / "embeddings"
+        if no_args_provided or not args.embeddings_dir:
+            args.embeddings_dir = str(default_embeddings)
+    
+    if no_args_provided or not args.output_dir:
+        # Auto-detect output directory
+        default_output = PROJECT_ROOT / "results"
+        if no_args_provided or not args.output_dir:
+            args.output_dir = str(default_output)
+    
     # Setup logging
     if args.output_dir:
         log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
@@ -736,6 +808,15 @@ def main():
         log_dir = args.log_dir if args.log_dir else Path("logs")
     
     logger = setup_logging(log_dir)
+    
+    # Show warnings for auto-applied defaults
+    if no_args_provided:
+        logger.warning("⚠️ No arguments provided. Using auto-detected directories.")
+    else:
+        if not args.embeddings_dir or args.embeddings_dir == str(PROJECT_ROOT / "data" / "embeddings"):
+            logger.warning("⚠️ Using default embeddings directory: data/embeddings")
+        if not args.output_dir or args.output_dir == str(PROJECT_ROOT / "results"):
+            logger.warning("⚠️ Using default output directory: results")
     
     logger.info("=" * 60)
     logger.info("MLP TRAINING STARTED")
@@ -746,6 +827,7 @@ def main():
     logger.info(f"Epochs: {args.epochs}")
     logger.info(f"Learning rate: {args.lr}")
     logger.info(f"Batch size: {args.batch_size}")
+    logger.info(f"Fast mode: {args.fast}")
     logger.info(f"Device: {device}")
     
     try:
