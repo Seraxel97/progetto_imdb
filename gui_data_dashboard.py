@@ -298,6 +298,26 @@ def find_session_models_and_data(session_dir=None):
     
     return models_dir, embeddings_dir, reports_dir, plots_dir
 
+def find_latest_model(filename: str) -> Optional[Path]:
+    """Find the requested model file inside the most recent auto_analysis session."""
+    try:
+        results_dir = RESULTS_DIR
+        if not results_dir.exists():
+            return None
+
+        session_dirs = [d for d in results_dir.iterdir()
+                        if d.is_dir() and d.name.startswith("auto_analysis_")]
+        session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+        for session_dir in session_dirs:
+            candidate = session_dir / "models" / filename
+            if candidate.exists():
+                return candidate
+        return None
+    except Exception as e:
+        st.error(f"Error finding model {filename}: {e}")
+        return None
+
 def load_session_info(session_dir):
     """🔧 NEW: Load information about a session"""
     if session_dir is None:
@@ -414,9 +434,9 @@ def load_trained_models_from_session():
     models['messages'].append(f"Models directory: {models_dir}")
     
     # === CARICAMENTO MLP ===
-    mlp_files = list(models_dir.glob("mlp_model*.pth"))
-    
-    for mlp_path in mlp_files:
+    mlp_path = find_latest_model("mlp_model.pth")
+
+    if mlp_path and mlp_path.exists():
         try:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             checkpoint = torch.load(mlp_path, map_location=device)
@@ -438,24 +458,22 @@ def load_trained_models_from_session():
             models['mlp'] = model
             models['status']['mlp'] = 'loaded'
             models['messages'].append(f"MLP model loaded from {mlp_path.name}")
-            break
-            
         except Exception as e:
             models['messages'].append(f"Warning: Could not load MLP from {mlp_path.name}: {str(e)}")
-            continue
-    
+    else:
+        models['messages'].append("MLP model not found")
     # === CARICAMENTO SVM ===
-    svm_files = list(models_dir.glob("svm_model*.pkl"))
-    
-    for svm_path in svm_files:
+    svm_path = find_latest_model("svm_model.pkl")
+
+    if svm_path and svm_path.exists():
         try:
             models['svm'] = joblib.load(svm_path)
             models['status']['svm'] = 'loaded'
             models['messages'].append(f"SVM model loaded from {svm_path.name}")
-            break
         except Exception as e:
             models['messages'].append(f"Warning: Could not load SVM from {svm_path.name}: {str(e)}")
-            continue
+    else:
+        models['messages'].append("SVM model not found")
     
     # Messaggio finale
     loaded_count = sum(1 for status in models['status'].values() if status == 'loaded')
