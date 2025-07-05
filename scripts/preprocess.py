@@ -35,8 +35,10 @@ def load_csv_robust(path):
     """Load CSV with fallback encodings and normalized headers."""
     try:
         df = pd.read_csv(path, encoding="utf-8", engine="python")
-    except Exception:
+    except UnicodeDecodeError:
         df = pd.read_csv(path, encoding="latin-1", engine="python")
+    except Exception:
+        df = pd.read_csv(path, encoding="utf-8", errors="replace", engine="python")
 
     df.columns = df.columns.str.strip().str.lower()
     df = df.rename(columns=lambda c: (
