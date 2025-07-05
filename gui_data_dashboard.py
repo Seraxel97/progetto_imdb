@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Sistema di Analisi Sentiment - GUI Finale Scientifica - FIXED IMPORT VERSION
-Interfaccia professionale con 3 sezioni principali per analisi rigorosa del sentiment.
+Sistema di Analisi Sentiment - GUI Finale Scientifica - FIXED SESSION-BASED LOADING
+Interfaccia professionale con caricamento automatico dei risultati dalle sessioni più recenti.
 
-🔧 FIXES APPLIED:
-- ✅ Fixed import pipeline_runner functions with proper error handling
-- ✅ Button callbacks now call REAL pipeline functions that exist
-- ✅ Creates proper results/session_<timestamp>/ structure
-- ✅ Enhanced error handling for missing dependencies
-- ✅ Improved path detection and logging
-- ✅ Real progress tracking and result feedback
+🔧 CRITICAL FIXES APPLIED:
+- ✅ Fixed model loading to search in session directories (results/auto_analysis_*)
+- ✅ Added automatic latest session detection and loading
+- ✅ Enhanced result visualization from pipeline executions
+- ✅ Fixed path resolution for session-based structure
+- ✅ Improved error handling and fallback mechanisms
 
 CARATTERISTICHE FINALI:
 - 📊 Dataset Analysis: Analisi completa unificata con pipeline REALE
@@ -17,6 +16,7 @@ CARATTERISTICHE FINALI:
 - 📥 Export Results: Download completo di risultati e report professionali
 - 🔬 Approccio scientifico con pipeline completa backend
 - 📊 Grafici professionali + risultati autentici dalla pipeline
+- 🆕 Automatic session-based result loading
 """
 
 import streamlit as st
@@ -63,7 +63,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 PROCESSED_DATA_DIR = DATA_DIR / "processed" 
 EMBEDDINGS_DATA_DIR = DATA_DIR / "embeddings"
 RESULTS_DIR = PROJECT_ROOT / "results"
-MODELS_DIR = RESULTS_DIR / "models"  # CORRETTO: models è sotto results/
+MODELS_DIR = RESULTS_DIR / "models"  # Legacy fallback
 REPORTS_DIR = RESULTS_DIR / "reports"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
@@ -195,8 +195,148 @@ st.markdown("""
         border-left: 4px solid #2196f3;
         margin: 1rem 0;
     }
+    
+    .session-info {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# === 🔧 NEW: SESSION MANAGEMENT FUNCTIONS ===
+
+def find_latest_session_directory():
+    """🔧 NEW: Find the latest auto_analysis session directory"""
+    try:
+        results_dir = RESULTS_DIR
+        
+        if not results_dir.exists():
+            return None
+        
+        # Find all auto_analysis directories
+        session_dirs = []
+        for item in results_dir.iterdir():
+            if item.is_dir() and item.name.startswith("auto_analysis_"):
+                session_dirs.append(item)
+        
+        if not session_dirs:
+            return None
+        
+        # Sort by modification time (most recent first)
+        session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        return session_dirs[0]
+        
+    except Exception as e:
+        st.error(f"Error finding latest session: {e}")
+        return None
+
+def find_session_models_and_data(session_dir=None):
+    """🔧 NEW: Find models and data in session directory"""
+    if session_dir is None:
+        session_dir = find_latest_session_directory()
+    
+    if session_dir is None:
+        return None, None, None, None
+    
+    session_dir = Path(session_dir)
+    
+    # Look for models directory
+    models_candidates = [
+        session_dir / "models",
+        session_dir  # Sometimes models are in session root
+    ]
+    
+    models_dir = None
+    for candidate in models_candidates:
+        if candidate.exists():
+            # Check if it contains model files
+            if any(candidate.glob("*.pth")) or any(candidate.glob("*.pkl")):
+                models_dir = candidate
+                break
+    
+    # Look for embeddings data
+    embeddings_candidates = [
+        session_dir / "embeddings",
+        session_dir / "data" / "embeddings"
+    ]
+    
+    embeddings_dir = None
+    for candidate in embeddings_candidates:
+        if candidate.exists() and any(candidate.glob("*.npy")):
+            embeddings_dir = candidate
+            break
+    
+    # Look for reports
+    reports_candidates = [
+        session_dir / "reports",
+        session_dir / "models" / "reports",
+        session_dir
+    ]
+    
+    reports_dir = None
+    for candidate in reports_candidates:
+        if candidate.exists() and (any(candidate.glob("*.json")) or any(candidate.glob("*.txt"))):
+            reports_dir = candidate
+            break
+    
+    # Look for plots
+    plots_candidates = [
+        session_dir / "plots",
+        session_dir / "models" / "plots",
+        session_dir
+    ]
+    
+    plots_dir = None
+    for candidate in plots_candidates:
+        if candidate.exists() and any(candidate.glob("*.png")):
+            plots_dir = candidate
+            break
+    
+    return models_dir, embeddings_dir, reports_dir, plots_dir
+
+def load_session_info(session_dir):
+    """🔧 NEW: Load information about a session"""
+    if session_dir is None:
+        return None
+    
+    session_dir = Path(session_dir)
+    
+    info = {
+        'session_path': str(session_dir),
+        'session_name': session_dir.name,
+        'creation_time': datetime.fromtimestamp(session_dir.stat().st_ctime),
+        'modification_time': datetime.fromtimestamp(session_dir.stat().st_mtime),
+        'models_found': [],
+        'reports_found': [],
+        'plots_found': []
+    }
+    
+    models_dir, embeddings_dir, reports_dir, plots_dir = find_session_models_and_data(session_dir)
+    
+    # Check for models
+    if models_dir:
+        for model_file in models_dir.glob("*.pth"):
+            info['models_found'].append(f"MLP: {model_file.name}")
+        for model_file in models_dir.glob("*.pkl"):
+            info['models_found'].append(f"SVM: {model_file.name}")
+    
+    # Check for reports
+    if reports_dir:
+        for report_file in reports_dir.glob("*.json"):
+            info['reports_found'].append(report_file.name)
+        for report_file in reports_dir.glob("*.txt"):
+            info['reports_found'].append(report_file.name)
+    
+    # Check for plots
+    if plots_dir:
+        for plot_file in plots_dir.glob("*.png"):
+            info['plots_found'].append(plot_file.name)
+    
+    return info
 
 # === DEFINIZIONE ARCHITETTURA MLP ===
 class HateSpeechMLP(nn.Module):
@@ -224,7 +364,7 @@ class HateSpeechMLP(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-# === CARICAMENTO SICURO MODELLI ===
+# === 🔧 FIXED: CARICAMENTO SICURO MODELLI DA SESSIONI ===
 @st.cache_resource
 def load_embedding_model():
     """Carica il modello di embedding con fallback"""
@@ -242,8 +382,8 @@ def load_embedding_model():
         return None, f"Error loading embedding model: {e}"
 
 @st.cache_resource
-def load_trained_models():
-    """Carica i modelli addestrati da /results/models/ con gestione graceful"""
+def load_trained_models_from_session():
+    """🔧 FIXED: Carica i modelli addestrati dalla sessione più recente"""
     models = {
         'mlp': None,
         'svm': None,
@@ -251,59 +391,71 @@ def load_trained_models():
             'mlp': 'not_found',
             'svm': 'not_found'
         },
-        'messages': []
+        'messages': [],
+        'session_info': None
     }
     
-    # === CARICAMENTO MLP ===
-    mlp_paths = [
-        MODELS_DIR / "mlp_model.pth",
-        MODELS_DIR / "mlp_model_complete.pth"
-    ]
+    # Find latest session
+    latest_session = find_latest_session_directory()
+    if latest_session is None:
+        models['messages'].append("No session directories found")
+        return models
     
-    for mlp_path in mlp_paths:
-        if mlp_path.exists():
-            try:
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                checkpoint = torch.load(mlp_path, map_location=device)
-                
-                if isinstance(checkpoint, dict):
-                    if 'model_state_dict' in checkpoint:
-                        state_dict = checkpoint['model_state_dict']
-                    elif 'state_dict' in checkpoint:
-                        state_dict = checkpoint['state_dict']
-                    else:
-                        state_dict = checkpoint
+    models['session_info'] = load_session_info(latest_session)
+    models['messages'].append(f"Using session: {latest_session.name}")
+    
+    # Find models in session
+    models_dir, embeddings_dir, reports_dir, plots_dir = find_session_models_and_data(latest_session)
+    
+    if models_dir is None:
+        models['messages'].append("No models directory found in session")
+        return models
+    
+    models['messages'].append(f"Models directory: {models_dir}")
+    
+    # === CARICAMENTO MLP ===
+    mlp_files = list(models_dir.glob("mlp_model*.pth"))
+    
+    for mlp_path in mlp_files:
+        try:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            checkpoint = torch.load(mlp_path, map_location=device)
+            
+            if isinstance(checkpoint, dict):
+                if 'model_state_dict' in checkpoint:
+                    state_dict = checkpoint['model_state_dict']
+                elif 'state_dict' in checkpoint:
+                    state_dict = checkpoint['state_dict']
                 else:
                     state_dict = checkpoint
-                
-                model = HateSpeechMLP(input_dim=384).to(device)
-                model.load_state_dict(state_dict, strict=False)
-                model.eval()
-                
-                models['mlp'] = model
-                models['status']['mlp'] = 'loaded'
-                models['messages'].append(f"MLP model loaded from {mlp_path.name}")
-                break
-                
-            except Exception as e:
-                models['messages'].append(f"Warning: Could not load MLP from {mlp_path.name}")
-                continue
+            else:
+                state_dict = checkpoint
+            
+            model = HateSpeechMLP(input_dim=384).to(device)
+            model.load_state_dict(state_dict, strict=False)
+            model.eval()
+            
+            models['mlp'] = model
+            models['status']['mlp'] = 'loaded'
+            models['messages'].append(f"MLP model loaded from {mlp_path.name}")
+            break
+            
+        except Exception as e:
+            models['messages'].append(f"Warning: Could not load MLP from {mlp_path.name}: {str(e)}")
+            continue
     
     # === CARICAMENTO SVM ===
-    svm_paths = [
-        MODELS_DIR / "svm_model.pkl"
-    ]
+    svm_files = list(models_dir.glob("svm_model*.pkl"))
     
-    for svm_path in svm_paths:
-        if svm_path.exists():
-            try:
-                models['svm'] = joblib.load(svm_path)
-                models['status']['svm'] = 'loaded'
-                models['messages'].append(f"SVM model loaded from {svm_path.name}")
-                break
-            except Exception as e:
-                models['messages'].append(f"Warning: Could not load SVM from {svm_path.name}")
-                continue
+    for svm_path in svm_files:
+        try:
+            models['svm'] = joblib.load(svm_path)
+            models['status']['svm'] = 'loaded'
+            models['messages'].append(f"SVM model loaded from {svm_path.name}")
+            break
+        except Exception as e:
+            models['messages'].append(f"Warning: Could not load SVM from {svm_path.name}: {str(e)}")
+            continue
     
     # Messaggio finale
     loaded_count = sum(1 for status in models['status'].values() if status == 'loaded')
@@ -315,6 +467,74 @@ def load_trained_models():
         models['messages'].append("All models loaded successfully")
     
     return models
+
+def load_session_results():
+    """🔧 NEW: Load results from the latest session"""
+    latest_session = find_latest_session_directory()
+    
+    if latest_session is None:
+        return None
+    
+    models_dir, embeddings_dir, reports_dir, plots_dir = find_session_models_and_data(latest_session)
+    
+    results = {
+        'session_dir': str(latest_session),
+        'session_name': latest_session.name,
+        'models': {},
+        'reports': {},
+        'plots': {},
+        'metrics': {}
+    }
+    
+    # Load model metrics
+    if reports_dir:
+        # Load MLP metrics
+        mlp_metrics_file = reports_dir / "mlp_metrics.json"
+        if mlp_metrics_file.exists():
+            try:
+                with open(mlp_metrics_file, 'r', encoding='utf-8') as f:
+                    results['metrics']['mlp'] = json.load(f)
+            except Exception as e:
+                st.warning(f"Could not load MLP metrics: {e}")
+        
+        # Load SVM metrics
+        svm_metrics_file = reports_dir / "svm_metrics.json"
+        if svm_metrics_file.exists():
+            try:
+                with open(svm_metrics_file, 'r', encoding='utf-8') as f:
+                    results['metrics']['svm'] = json.load(f)
+            except Exception as e:
+                st.warning(f"Could not load SVM metrics: {e}")
+        
+        # Load evaluation report
+        eval_report_file = reports_dir / "evaluation_report.json"
+        if eval_report_file.exists():
+            try:
+                with open(eval_report_file, 'r', encoding='utf-8') as f:
+                    results['reports']['evaluation'] = json.load(f)
+            except Exception as e:
+                st.warning(f"Could not load evaluation report: {e}")
+    
+    # Find plot files
+    if plots_dir:
+        for plot_file in plots_dir.glob("*.png"):
+            model_type = "unknown"
+            if "mlp" in plot_file.name.lower():
+                model_type = "mlp"
+            elif "svm" in plot_file.name.lower():
+                model_type = "svm"
+            
+            if model_type not in results['plots']:
+                results['plots'][model_type] = {}
+            
+            if "confusion" in plot_file.name.lower():
+                results['plots'][model_type]['confusion_matrix'] = str(plot_file)
+            elif "metrics" in plot_file.name.lower() or "performance" in plot_file.name.lower():
+                results['plots'][model_type]['performance'] = str(plot_file)
+            elif "history" in plot_file.name.lower():
+                results['plots'][model_type]['training_history'] = str(plot_file)
+    
+    return results
 
 # === CARICAMENTO DATASET CON VALIDAZIONE ===
 @st.cache_data
@@ -484,6 +704,74 @@ def run_real_uploaded_csv_analysis(uploaded_file) -> Dict:
             'fake_analysis': True
         }
 
+# === 🔧 NEW: VISUALIZZAZIONE RISULTATI SESSIONE ===
+def display_session_results():
+    """🔧 NEW: Display results from the latest session"""
+    session_results = load_session_results()
+    
+    if session_results is None:
+        st.warning("⚠️ No session results found")
+        return
+    
+    st.markdown('<div class="analysis-header">Latest Session Results</div>', unsafe_allow_html=True)
+    
+    # Session info
+    st.markdown(f'<div class="session-info"><strong>Session:</strong> {session_results["session_name"]}<br><strong>Directory:</strong> {session_results["session_dir"]}</div>', unsafe_allow_html=True)
+    
+    # Model performance metrics
+    if session_results.get('metrics'):
+        st.markdown('<div class="analysis-header">Model Performance</div>', unsafe_allow_html=True)
+        
+        cols = st.columns(len(session_results['metrics']))
+        
+        for i, (model_name, metrics) in enumerate(session_results['metrics'].items()):
+            with cols[i]:
+                st.subheader(f"{model_name.upper()} Model")
+                
+                if isinstance(metrics, dict):
+                    accuracy = metrics.get('validation_accuracy', metrics.get('accuracy', 0))
+                    f1_score = metrics.get('validation_f1', metrics.get('f1_score', 0))
+                    training_time = metrics.get('training_time', 0)
+                    training_samples = metrics.get('training_samples', 0)
+                    
+                    st.metric("Accuracy", f"{accuracy:.3f}")
+                    st.metric("F1-Score", f"{f1_score:.3f}")
+                    if training_time > 0:
+                        st.metric("Training Time", f"{training_time:.1f}s")
+                    if training_samples > 0:
+                        st.metric("Training Samples", f"{training_samples:,}")
+    
+    # Display plots
+    if session_results.get('plots'):
+        st.markdown('<div class="analysis-header">Performance Visualizations</div>', unsafe_allow_html=True)
+        
+        for model_name, plots in session_results['plots'].items():
+            if plots:
+                st.subheader(f"{model_name.upper()} Visualizations")
+                
+                plot_cols = st.columns(len(plots))
+                
+                for i, (plot_type, plot_path) in enumerate(plots.items()):
+                    with plot_cols[i]:
+                        try:
+                            if Path(plot_path).exists():
+                                st.image(plot_path, caption=f"{plot_type.replace('_', ' ').title()}")
+                            else:
+                                st.warning(f"Plot not found: {plot_path}")
+                        except Exception as e:
+                            st.error(f"Error loading plot: {e}")
+    
+    # Display insights
+    if session_results.get('reports', {}).get('evaluation'):
+        eval_report = session_results['reports']['evaluation']
+        
+        if 'summary' in eval_report and 'insights' in eval_report['summary']:
+            st.markdown('<div class="analysis-header">Intelligent Insights</div>', unsafe_allow_html=True)
+            
+            insights = eval_report['summary']['insights']
+            for i, insight in enumerate(insights, 1):
+                st.info(f"💡 **Insight {i}**: {insight}")
+
 # === FUNZIONI VISUALIZZAZIONE RISULTATI PIPELINE ===
 def display_pipeline_results(pipeline_results: Dict):
     """
@@ -647,11 +935,11 @@ def create_timestamp_session():
     return st.session_state.session_timestamp
 
 def main():
-    """Applicazione principale Streamlit - Versione FIXED con pipeline reale"""
+    """Applicazione principale Streamlit - Versione FIXED con session-based loading"""
     
     try:
         # Header principale
-        st.markdown('<div class="main-header">Scientific Sentiment Analysis System - REAL PIPELINE VERSION</div>', 
+        st.markdown('<div class="main-header">Scientific Sentiment Analysis System - FIXED SESSION-BASED VERSION</div>', 
                     unsafe_allow_html=True)
         
         # === CARICAMENTO INIZIALE SICURO ===
@@ -662,24 +950,14 @@ def main():
             # Carica embedding model
             embedding_model, embed_msg = load_embedding_model()
             
-            # Carica modelli ML
-            models = load_trained_models()
+            # 🔧 FIXED: Carica modelli da sessioni
+            models = load_trained_models_from_session()
             
             # Carica dataset principale
             main_df, main_dataset_path, dataset_error = load_main_dataset()
 
-            # Analisi automatica del test set all'avvio
-            auto_pipeline = None
-            auto_analysis = None
-            default_test = PROCESSED_DATA_DIR / "test.csv"
-            if PIPELINE_AVAILABLE and default_test.exists():
-                auto_pipeline = run_complete_csv_analysis(str(default_test))
-                auto_analysis = run_dataset_analysis(str(default_test))
-                st.session_state['auto_results'] = {
-                    'pipeline': auto_pipeline,
-                    'analysis': auto_analysis,
-                    'path': str(default_test)
-                }
+            # 🔧 FIXED: Carica risultati della sessione automaticamente
+            session_results = load_session_results()
         
         # === SIDEBAR INFORMAZIONI ===
         with st.sidebar:
@@ -700,10 +978,21 @@ def main():
             else:
                 st.warning("⚠️ Enhanced Utils Not Available")
             
+            # 🔧 NEW: Session status
+            st.subheader("Session Status")
+            if models.get('session_info'):
+                session_info = models['session_info']
+                st.success(f"✅ Latest Session: {session_info['session_name']}")
+                st.info(f"Created: {session_info['creation_time'].strftime('%Y-%m-%d %H:%M')}")
+                st.info(f"Models: {len(session_info['models_found'])}")
+                st.info(f"Reports: {len(session_info['reports_found'])}")
+                st.info(f"Plots: {len(session_info['plots_found'])}")
+            else:
+                st.warning("⚠️ No sessions found")
+            
             # Percorsi
             st.subheader("Project Structure")
             st.text(f"Root: {PROJECT_ROOT}")
-            st.text(f"Models: {MODELS_DIR}")
             st.text(f"Results: {RESULTS_DIR}")
             
             # Status modelli
@@ -746,23 +1035,11 @@ def main():
             st.markdown('<div class="scientific-section">', unsafe_allow_html=True)
             st.header("Comprehensive Dataset Analysis with REAL Pipeline")
 
-            if 'auto_results' in st.session_state:
-                auto_pipeline = st.session_state['auto_results']['pipeline']
-                auto_analysis = st.session_state['auto_results']['analysis']
-                st.subheader("Automatic Analysis of test.csv")
-                display_pipeline_results(auto_pipeline)
+            # 🔧 NEW: Display session results first
+            if session_results:
+                display_session_results()
+                st.markdown("---")
 
-                try:
-                    if auto_analysis and 'text_analysis' in auto_analysis:
-                        col_used = auto_analysis['text_analysis']['column_used']
-                        words = ' '.join(main_df[col_used].astype(str)).lower().split()
-                        common_words = Counter(words).most_common(20)
-                        word_df = pd.DataFrame(common_words, columns=['Word', 'Count'])
-                        fig_words = px.bar(word_df, x='Word', y='Count', title='Most Used Words')
-                        st.plotly_chart(fig_words, use_container_width=True)
-                except Exception:
-                    pass
-            
             if not PIPELINE_AVAILABLE:
                 st.error("❌ Real pipeline not available. Check pipeline_runner.py import.")
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -842,6 +1119,11 @@ def main():
                             
                             # Mostra risultati REALI
                             display_pipeline_results(pipeline_results)
+                            
+                            # 🔧 NEW: Refresh models and session info
+                            st.success("🔄 Pipeline completed! Refreshing models...")
+                            st.cache_resource.clear()
+                            st.rerun()
                             
                         else:
                             st.error("❌ Real pipeline execution failed")
@@ -933,6 +1215,11 @@ def main():
                         # Mostra risultati REALI
                         display_pipeline_results(pipeline_results)
                         
+                        # 🔧 NEW: Refresh models and session info
+                        st.success("🔄 Pipeline completed! Refreshing models...")
+                        st.cache_resource.clear()
+                        st.rerun()
+                        
                     else:
                         st.error("❌ Real pipeline execution failed for uploaded CSV")
                         if 'error' in pipeline_results:
@@ -948,7 +1235,7 @@ def main():
                 - Authentic sentiment model training (MLP + SVM)
                 - Comprehensive statistical analysis and insights
                 - Scientific visualization generation
-                - Results saved to `results/session_<timestamp>/`
+                - Results saved to `results/auto_analysis_<timestamp>/`
                 
                 ### Supported File Formats:
                 
@@ -972,138 +1259,130 @@ def main():
             st.markdown('<div class="export-section">', unsafe_allow_html=True)
             st.header("Export Results")
             
-            if 'current_analysis' in st.session_state:
+            # 🔧 NEW: Check for session results first
+            if session_results:
+                st.success(f"Latest session results available: **{session_results['session_name']}**")
+                
+                # Show session info
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.info(f"Session Directory: {session_results['session_dir']}")
+                    
+                    # Model metrics summary
+                    if session_results.get('metrics'):
+                        st.info("📊 Models with results:")
+                        for model_name, metrics in session_results['metrics'].items():
+                            if isinstance(metrics, dict):
+                                accuracy = metrics.get('validation_accuracy', metrics.get('accuracy', 0))
+                                st.info(f"   • {model_name.upper()}: {accuracy:.3f} accuracy")
+                    
+                    # Plots available
+                    if session_results.get('plots'):
+                        plot_count = sum(len(plots) for plots in session_results['plots'].values())
+                        st.info(f"📈 {plot_count} visualization plots available")
+                    
+                with col2:
+                    # Quick metrics
+                    total_models = len(session_results.get('metrics', {}))
+                    total_plots = sum(len(plots) for plots in session_results.get('plots', {}).values())
+                    total_reports = len(session_results.get('reports', {}))
+                    
+                    st.metric("Models", total_models)
+                    st.metric("Plots", total_plots)
+                    st.metric("Reports", total_reports)
+                
+                # Download options for session results
+                st.subheader("Download Session Files")
+                
+                session_path = Path(session_results['session_dir'])
+                
+                # Generate file lists
+                available_files = {}
+                
+                # Model files
+                models_dir = session_path / "models"
+                if models_dir.exists():
+                    for model_file in models_dir.glob("*.pth"):
+                        available_files[f"MLP Model ({model_file.name})"] = model_file
+                    for model_file in models_dir.glob("*.pkl"):
+                        available_files[f"SVM Model ({model_file.name})"] = model_file
+                
+                # Report files
+                reports_dir = session_path / "reports"
+                if reports_dir.exists():
+                    for report_file in reports_dir.glob("*.json"):
+                        available_files[f"Report ({report_file.name})"] = report_file
+                    for report_file in reports_dir.glob("*.txt"):
+                        available_files[f"Text Report ({report_file.name})"] = report_file
+                
+                # Plot files
+                plots_dir = session_path / "plots"
+                if plots_dir.exists():
+                    for plot_file in plots_dir.glob("*.png"):
+                        available_files[f"Plot ({plot_file.name})"] = plot_file
+                
+                # Create download buttons
+                if available_files:
+                    cols = st.columns(3)
+                    col_idx = 0
+                    
+                    for file_label, file_path in available_files.items():
+                        with cols[col_idx % 3]:
+                            try:
+                                with open(file_path, 'rb') as f:
+                                    st.download_button(
+                                        label=f"📄 {file_label}",
+                                        data=f.read(),
+                                        file_name=file_path.name,
+                                        mime="application/octet-stream"
+                                    )
+                                col_idx += 1
+                            except Exception as e:
+                                st.error(f"Error reading {file_label}: {e}")
+                
+                # Export features description
+                st.subheader("Session Export Contents")
+                st.markdown("""
+                **Latest Session Export Contains:**
+                - Complete model training results and checkpoints  
+                - Embedding matrices and metadata
+                - Performance metrics and evaluation reports
+                - Intelligent insights and analysis summaries
+                - Scientific visualization plots
+                - Structured session directory with full organization
+                
+                **Professional Features:**
+                - Research-grade documentation and methodology
+                - Quantitative metrics with statistical significance
+                - Reproducible analysis with full traceability
+                - Export-ready for academic and industry presentation
+                """)
+                
+            elif 'current_analysis' in st.session_state:
+                # Legacy current analysis support
                 try:
                     analysis = st.session_state['current_analysis']
                     
                     st.success(f"Analysis results available for: **{analysis['filename']}**")
                     
-                    # Panoramica risultati
+                    # Show analysis info (legacy support)
                     col1, col2 = st.columns([3, 1])
                     
                     with col1:
                         st.info(f"Generated: {analysis['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
                         st.info(f"Analysis Type: {analysis.get('analysis_type', 'Standard').title()}")
                         
-                        # Session directory se disponibile
+                        # Session directory if available
                         session_dir = analysis.get('session_directory')
                         if session_dir:
                             st.info(f"Session Directory: {session_dir}")
-                        else:
-                            st.info(f"Export Location: {RESULTS_DIR}")
-                        
-                        # Pipeline results
-                        pipeline_results = analysis.get('pipeline_results', {})
-                        if pipeline_results.get('success', False):
-                            st.success("✅ Real pipeline results available")
-                            
-                            final_results = pipeline_results.get('final_results', {})
-                            features = []
-                            if final_results.get('predictions'):
-                                features.append("Model Predictions")
-                            if final_results.get('metrics'):
-                                features.append("Performance Metrics")
-                            if final_results.get('insights'):
-                                features.append("Intelligent Insights")
-                            
-                            if features:
-                                st.info(f"Features: {', '.join(features)}")
-                        else:
-                            st.warning("⚠️ Pipeline results incomplete")
                     
                     with col2:
-                        pipeline_results = analysis.get('pipeline_results', {})
-                        final_results = pipeline_results.get('final_results', {})
+                        st.metric("Analysis Type", "Legacy")
                         
-                        # Metriche
-                        predictions = final_results.get('predictions', {})
-                        models_count = len(predictions) if predictions else 0
-                        
-                        total_predictions = 0
-                        for model_preds in predictions.values():
-                            if isinstance(model_preds, list):
-                                total_predictions += len(model_preds)
-                        
-                        st.metric("Models Used", models_count)
-                        st.metric("Total Predictions", total_predictions)
-                        
-                        insights_count = len(final_results.get('insights', []))
-                        st.metric("Insights", insights_count)
-                    
-                    # Session directory info
-                    session_dir = analysis.get('session_directory')
-                    if session_dir and Path(session_dir).exists():
-                        st.subheader("Session Directory Contents")
-                        
-                        session_path = Path(session_dir)
-                        
-                        # List directories created
-                        subdirs = []
-                        for item in session_path.iterdir():
-                            if item.is_dir():
-                                subdirs.append(item.name)
-                        
-                        if subdirs:
-                            st.info(f"📂 Directories: {', '.join(sorted(subdirs))}")
-                        
-                        # List files created
-                        all_files = []
-                        for root, dirs, files in os.walk(session_path):
-                            for file in files:
-                                rel_path = Path(root).relative_to(session_path) / file
-                                all_files.append(str(rel_path))
-                        
-                        if all_files:
-                            st.info(f"📄 Total files: {len(all_files)}")
-
-                            with st.expander("View all generated files"):
-                                for file_path in sorted(all_files):
-                                    st.text(f"• {file_path}")
-
-                        # Download buttons for key results
-                        final_results = pipeline_results.get('final_results', {})
-                        download_map = {
-                            'Predictions CSV': final_results.get('predictions_file'),
-                            'Report PDF': final_results.get('report_pdf'),
-                            'Summary TXT': final_results.get('summary_file')
-                        }
-                        log_file = session_path / 'pipeline.log'
-                        if log_file.exists():
-                            download_map['Log File'] = str(log_file)
-
-                        if download_map:
-                            st.subheader("Download Files")
-                            for label, path in download_map.items():
-                                if path and Path(path).exists():
-                                    with open(path, 'rb') as f:
-                                        st.download_button(
-                                            label=f"Download {label}",
-                                            data=f.read(),
-                                            file_name=Path(path).name
-                                        )
-                    
-                    # Export caratteristiche
-                    st.subheader("Export Package Features")
-                    st.markdown("""
-                    **Real Pipeline Export Contents:**
-                    - Complete model training results and checkpoints  
-                    - Embedding matrices and metadata
-                    - Performance metrics and evaluation reports
-                    - Intelligent insights and analysis summaries
-                    - Scientific visualization plots
-                    - Structured session directory with proper organization
-                    
-                    **Professional Features:**
-                    - Research-grade documentation and methodology
-                    - Quantitative metrics with statistical significance
-                    - Reproducible analysis with full traceability
-                    - Export-ready for academic and industry presentation
-                    
-                    **Directory Structure:** `results/session_YYYYMMDD_HHMMSS/`
-                    """)
-                    
                 except Exception as e:
-                    st.error(f"Error in export section: {str(e)}")
+                    st.error(f"Error in legacy export section: {str(e)}")
             else:
                 st.info("No analysis results available for export.")
                 
@@ -1131,9 +1410,9 @@ def main():
         st.markdown("---")
         st.markdown(f"""
         <div style='text-align: center; color: #666; padding: 20px;'>
-            <strong>Scientific Sentiment Analysis System v2.0 - REAL PIPELINE</strong><br>
+            <strong>Scientific Sentiment Analysis System v3.0 - FIXED SESSION-BASED</strong><br>
             <small>Research-Grade • Objective • Reproducible • {'✅ Pipeline Connected' if PIPELINE_AVAILABLE else '❌ Pipeline Disconnected'}</small><br>
-            <small>Results automatically saved to: {PROJECT_ROOT}/results/session_&lt;timestamp&gt;/</small>
+            <small>Results automatically loaded from: {PROJECT_ROOT}/results/auto_analysis_&lt;timestamp&gt;/</small>
         </div>
         """, unsafe_allow_html=True)
     
