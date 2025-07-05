@@ -8,6 +8,7 @@ import pandas as pd
 import json
 from pathlib import Path
 from datetime import datetime
+from ftfy import fix_text
 
 from scripts.pipeline_runner import run_complete_csv_analysis
 
@@ -15,7 +16,7 @@ st.set_page_config(page_title="Sentiment Analysis", layout="wide")
 
 st.title("Upload & Analyze")
 
-uploaded = st.file_uploader("Upload & Analyze", type=["csv"])
+uploaded = st.file_uploader("Upload CSV", type=["csv"])
 
 if "analysis_done" not in st.session_state:
     st.session_state.analysis_done = False
@@ -45,8 +46,20 @@ if uploaded and not st.session_state.analysis_done:
 
     st.session_state.uploaded_df = df
 
+    log_box = st.empty()
+    logs = []
+
+    def append_log(text: str):
+        logs.append(fix_text(text))
+        log_box.text_area("Logs", "".join(logs[-200:]), height=300)
+
     with st.spinner("Running full pipeline..."):
-        results = run_complete_csv_analysis(str(saved_csv))
+        results = run_complete_csv_analysis(
+            str(saved_csv),
+            log_callback=append_log,
+        )
+
+    st.session_state.logs = logs
 
     st.session_state.results = results
     st.session_state.analysis_done = True
@@ -54,10 +67,11 @@ if uploaded and not st.session_state.analysis_done:
 if st.session_state.get("analysis_done"):
     df = st.session_state.get("uploaded_df")
     results = st.session_state.get("results")
+    logs = st.session_state.get("logs", [])
 
     if df is not None:
         st.subheader("Data Preview")
-        st.dataframe(df.head(200), use_container_width=True, height=400)
+        st.dataframe(df.head(200), use_container_width=True, height=300)
 
     if results and results.get("success"):
         st.success("Analysis completed!")
@@ -83,6 +97,10 @@ if st.session_state.get("analysis_done"):
 
         st.subheader("Summary Statistics")
         st.json(summary)
+
+        if logs:
+            st.subheader("Execution Logs")
+            st.text_area("Logs", "".join(logs[-200:]), height=300)
 
         if insights:
             st.subheader("Insights")

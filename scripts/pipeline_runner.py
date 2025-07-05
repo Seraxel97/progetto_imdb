@@ -44,8 +44,9 @@ from pathlib import Path
 from datetime import datetime
 import logging
 import subprocess
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Callable
 import warnings
+from ftfy import fix_text
 warnings.filterwarnings('ignore')
 
 def load_csv_robust(path):
@@ -256,8 +257,14 @@ class PipelineRunner:
         
         return availability
     
-    def run_subprocess_step(self, script_name: str, args: List[str], 
-                           description: str, timeout: int = 600) -> Tuple[bool, str, str]:
+    def run_subprocess_step(
+        self,
+        script_name: str,
+        args: List[str],
+        description: str,
+        timeout: int = 600,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[bool, str, str]:
         """
         Run a subprocess step with comprehensive error handling.
         
@@ -266,6 +273,7 @@ class PipelineRunner:
             args: Arguments for the script
             description: Human-readable description
             timeout: Timeout in seconds
+            stream_callback: Optional function to receive real-time output lines
         
         Returns:
             Tuple of (success, stdout, stderr)
@@ -281,25 +289,46 @@ class PipelineRunner:
         logger.info(f"   Working directory: {self.project_root}")
         
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                cwd=self.project_root
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=self.project_root,
             )
-            
-            if result.returncode == 0:
+
+            stdout_lines: List[str] = []
+            stderr_lines: List[str] = []
+
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                text = fix_text(line.decode("utf-8", errors="ignore"))
+                stdout_lines.append(text)
+                if stream_callback:
+                    stream_callback(text)
+
+            err = process.stderr.read()
+            if err:
+                err_text = fix_text(err.decode("utf-8", errors="ignore"))
+                stderr_lines.append(err_text)
+                if stream_callback:
+                    stream_callback(err_text)
+
+            process.wait(timeout=timeout)
+
+            stdout = "".join(stdout_lines)
+            stderr = "".join(stderr_lines)
+
+            if process.returncode == 0:
                 logger.info(f"✅ {description} - SUCCESS")
-                return True, result.stdout, result.stderr
+                return True, stdout, stderr
             else:
                 logger.error(f"❌ {description} - FAILED")
-                logger.error(f"   Return code: {result.returncode}")
-                logger.error(f"   STDOUT: {result.stdout[:500]}...")
-                logger.error(f"   STDERR: {result.stderr[:500]}...")
-                return False, result.stdout, result.stderr
+                logger.error(f"   Return code: {process.returncode}")
+                logger.error(f"   STDOUT: {stdout[:500]}...")
+                logger.error(f"   STDERR: {stderr[:500]}...")
+                return False, stdout, stderr
                 
         except subprocess.TimeoutExpired:
             error_msg = f"{description} timed out after {timeout} seconds"
@@ -310,8 +339,19 @@ class PipelineRunner:
             logger.error(f"❌ {error_msg}")
             return False, "", error_msg
     
-    def run_full_pipeline(self, input_csv_path: str, fast_mode: bool = True) -> Dict[str, Any]:
-        """Run the full preprocessing → embedding → training → report pipeline."""
+    def run_full_pipeline(
+        self,
+        input_csv_path: str,
+        fast_mode: bool = True,
+        log_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """Run the full preprocessing → embedding → training → report pipeline.
+
+        Args:
+            input_csv_path: Path to the raw CSV file
+            fast_mode: Use faster training settings when True
+            log_callback: Optional callback that receives real-time output
+        """
 
         logger.info(f"🚀 Starting sequential pipeline for: {input_csv_path}")
 
@@ -344,8 +384,17 @@ class PipelineRunner:
             ]
 
             for name, script, args in step_args:
-                success, stdout, stderr = self.run_subprocess_step(script, args, name)
-                results['steps'][name] = {'success': success}
+                success, stdout, stderr = self.run_subprocess_step(
+                    script,
+                    args,
+                    name,
+                    stream_callback=log_callback,
+                )
+                results['steps'][name] = {
+                    'success': success,
+                    'stdout': stdout,
+                    'stderr': stderr,
+                }
                 if not success:
                     results['error'] = f"{name} failed"
                     return results
@@ -762,8 +811,12 @@ def run_dataset_analysis(csv_path: str) -> Dict[str, Any]:
             'timestamp': datetime.now().isoformat()
         }
 
-def run_complete_csv_analysis(csv_path: str, text_column: str = 'text', 
-                            label_column: str = 'label') -> Dict[str, Any]:
+def run_complete_csv_analysis(
+    csv_path: str,
+    text_column: str = 'text',
+    label_column: str = 'label',
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
     """
     🔧 FIXED: Complete CSV analysis wrapper for GUI usage - EXACT NAME MATCH.
     Uses the enhanced_utils_unified auto_embed_and_predict pipeline.
@@ -772,6 +825,7 @@ def run_complete_csv_analysis(csv_path: str, text_column: str = 'text',
         csv_path: Path to CSV file to analyze
         text_column: Name of text column (auto-detected if not found)
         label_column: Name of label column (auto-detected if not found)
+        log_callback: Optional callback to stream subprocess output
         
     Returns:
         Complete pipeline results dictionary for GUI consumption
@@ -787,7 +841,11 @@ def run_complete_csv_analysis(csv_path: str, text_column: str = 'text',
         runner = PipelineRunner()
         
         # Use the full automated pipeline
-        result = runner.run_full_pipeline(csv_path, fast_mode=True)
+        result = runner.run_full_pipeline(
+            csv_path,
+            fast_mode=True,
+            log_callback=log_callback,
+        )
         
         return result
         
@@ -902,7 +960,11 @@ Examples:
             return
         
         print(f"🚀 Starting complete automated pipeline for: {args.file}")
-        results = runner.run_full_pipeline(args.file, fast_mode=args.fast_mode)
+        results = runner.run_full_pipeline(
+            args.file,
+            fast_mode=args.fast_mode,
+            log_callback=None,
+        )
         
         if results['success']:
             print("✅ AUTOMATED PIPELINE SUCCESS!")
@@ -958,7 +1020,11 @@ Examples:
         print(f"🔄 Detected CSV file: {args.file}")
         print("Executing complete automated analysis...")
         
-        results = runner.run_full_pipeline(args.file, fast_mode=args.fast_mode)
+        results = runner.run_full_pipeline(
+            args.file,
+            fast_mode=args.fast_mode,
+            log_callback=None,
+        )
         
         if results['success']:
             print("✅ Analysis completed!")

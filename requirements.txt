@@ -26,3 +26,4 @@ scikit-image>=0.21.0             # Supporto immagini (wordcloud e preproc)
 streamlit>=1.30.0                # Interfaccia utente
 Pillow>=10.0.0                   # Immagini in GUI (PNG, JPG, ecc.)
 wordcloud>=1.9.2                 # Generazione word cloud opzionale
+ftfy>=6.1.1                      # Correzione testi unicode
