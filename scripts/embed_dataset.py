@@ -68,6 +68,25 @@ import re
 
 warnings.filterwarnings('ignore')
 
+def load_csv_robust(path):
+    """Load CSV with fallback encodings and normalized headers."""
+    try:
+        df = pd.read_csv(path, encoding="utf-8", engine="python")
+    except Exception:
+        df = pd.read_csv(path, encoding="latin-1", engine="python")
+
+    df.columns = df.columns.str.strip().str.lower()
+    df = df.rename(columns=lambda c: (
+        c.replace("review", "text").replace("content", "text")
+         .replace("sentiment", "label").replace("class", "label")
+    ))
+
+    if "label" in df.columns:
+        df["label"] = df["label"].astype(str).str.strip().str.lower()
+        df["label"] = df["label"].replace({"positive": 1, "negative": 0, "pos": 1, "neg": 0})
+
+    return df
+
 # IMPROVED: Robust project root detection
 def find_project_root() -> Path:
     """Find project root with robust detection algorithm."""
@@ -239,7 +258,7 @@ class AdvancedEmbeddingGenerator:
             
             # Load and analyze CSV
             try:
-                df = pd.read_csv(csv_path)
+                df = load_csv_robust(csv_path)
                 validation_info['total_rows'] = len(df)
                 validation_info['columns'] = list(df.columns)
                 
@@ -421,7 +440,7 @@ class AdvancedEmbeddingGenerator:
         
         # Load CSV data
         try:
-            df = pd.read_csv(csv_path)
+            df = load_csv_robust(csv_path)
             self.logger.info(f"📊 Loaded CSV data: {len(df)} rows")
             
             # Extract and clean text data
@@ -780,7 +799,7 @@ class AdvancedEmbeddingGenerator:
             
             # Check if inference.csv is valid
             try:
-                df = pd.read_csv(inference_file)
+                df = load_csv_robust(inference_file)
                 if len(df) > 0 and 'text' in df.columns:
                     mode_info['valid_files'].append('inference.csv')
                     if inference_only or len(mode_info['files_available']) == 1:
@@ -800,7 +819,7 @@ class AdvancedEmbeddingGenerator:
             if filepath.exists():
                 mode_info['files_available'].append(filename)
                 try:
-                    df = pd.read_csv(filepath)
+                    df = load_csv_robust(filepath)
                     if len(df) > 0 and 'text' in df.columns:
                         valid_training_files.append(filename)
                         mode_info['valid_files'].append(filename)
@@ -1082,7 +1101,7 @@ class AdvancedEmbeddingGenerator:
             
             try:
                 # Load and analyze file
-                df = pd.read_csv(filepath)
+                df = load_csv_robust(filepath)
                 
                 # Skip empty files in inference mode
                 if len(df) == 0:
@@ -1304,7 +1323,7 @@ class AdvancedEmbeddingGenerator:
                 raise FileNotFoundError(f"File not found: {input_file}")
             
             # Load data
-            df = pd.read_csv(input_file)
+            df = load_csv_robust(input_file)
             processing_info['original_samples'] = len(df)
             
             if len(df) == 0:
