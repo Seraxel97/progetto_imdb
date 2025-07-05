@@ -388,7 +388,13 @@ def launch_streamlit_app(gui_path: Path, project_root: Path) -> int:
         
         try:
             # Run Streamlit
-            result = subprocess.run(cmd, env=env)
+            result = subprocess.run(
+                cmd,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
             return result.returncode
         finally:
             # Restore original directory
@@ -430,7 +436,14 @@ def setup_environment(project_root: Path) -> bool:
             print("\n📦 Installing dependencies...")
             try:
                 cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_file)]
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
                 print("✅ Dependencies installed successfully!")
                 logger.info("Dependencies installed successfully")
                 return True
@@ -488,6 +501,8 @@ def run_script_step(script_name: str, args: List[str], project_root: Path,
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=1800,  # 30 minutes timeout
             cwd=project_root
         )
