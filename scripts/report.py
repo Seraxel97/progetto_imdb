@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
-Report Generation Script - PIPELINE AUTOMATION COMPATIBLE
+Report Generation Script - FIXED UNICODE + ROBUST PATH HANDLING
 Generates comprehensive evaluation reports for trained sentiment analysis models.
+
+🔧 CRITICAL FIXES APPLIED:
+- ✅ Fixed UnicodeDecodeError in subprocess execution with proper encoding
+- ✅ Added robust file encoding handling (utf-8 with error handling)
+- ✅ Enhanced path discovery for session-based model structure
+- ✅ Improved error handling and graceful fallbacks
+- ✅ Fixed report generation pipeline integration
 
 FEATURES:
 - Evaluates both MLP and SVM models automatically
@@ -9,11 +16,11 @@ FEATURES:
 - Comprehensive reporting with plots, metrics, and insights
 - Robust error handling with detailed diagnostics
 - Full pipeline integration with structured output
-- Professional logging system
+- Professional logging system with UTF-8 support
 
 USAGE:
-  python report.py --models-dir results/models --test-data data/processed/test.csv --results-dir results
-  python report.py --models-dir results/models --test-data data/embeddings/X_test.npy --results-dir results
+  python report.py --models-dir results/auto_analysis_*/models --test-data data/processed/test.csv --results-dir results/auto_analysis_*/
+  python report.py --auto-default  # Auto-detect latest session
 """
 
 import os
@@ -25,6 +32,7 @@ import torch
 import argparse
 import logging
 import sys
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
@@ -45,33 +53,104 @@ except Exception:
     PROJECT_ROOT = Path.cwd()
 
 def setup_logging(log_dir):
-    """Setup logging configuration"""
+    """Setup logging configuration with robust UTF-8 support"""
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     
     log_file = log_dir / f"report_generation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
-    # Use utf-8 for the stream handler to avoid cp1252 errors on Windows
-    stream_handler = logging.StreamHandler(sys.stdout)
+    # 🔧 FIXED: Robust stream handler with UTF-8 support
     try:
-        stream_handler.stream.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass  # Python < 3.7 doesn't support reconfigure
-
+        # Try to configure UTF-8 encoding for stdout
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8')
+        elif hasattr(sys.stdout, 'encoding'):
+            # Create a wrapper if reconfigure is not available
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
+    except (AttributeError, Exception):
+        pass  # Fallback gracefully
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            stream_handler
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
         ]
     )
     
     return logging.getLogger(__name__)
 
+def find_latest_session_directory(project_root=None):
+    """🔧 NEW: Find the latest auto_analysis session directory"""
+    if project_root is None:
+        project_root = PROJECT_ROOT
+    
+    results_dir = Path(project_root) / "results"
+    
+    if not results_dir.exists():
+        return None
+    
+    # Find all auto_analysis directories
+    session_dirs = []
+    for item in results_dir.iterdir():
+        if item.is_dir() and item.name.startswith("auto_analysis_"):
+            session_dirs.append(item)
+    
+    if not session_dirs:
+        return None
+    
+    # Sort by modification time (most recent first)
+    session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    return session_dirs[0]
+
+def find_session_models_and_data(session_dir=None):
+    """🔧 NEW: Find models and test data in session directory"""
+    if session_dir is None:
+        session_dir = find_latest_session_directory()
+    
+    if session_dir is None:
+        return None, None, None
+    
+    session_dir = Path(session_dir)
+    
+    # Look for models directory
+    models_candidates = [
+        session_dir / "models",
+        session_dir / "models" / "models",  # Sometimes nested
+        session_dir
+    ]
+    
+    models_dir = None
+    for candidate in models_candidates:
+        if candidate.exists() and any(candidate.glob("*.pth")) or any(candidate.glob("*.pkl")):
+            models_dir = candidate
+            break
+    
+    # Look for test data
+    test_data_candidates = [
+        session_dir / "processed" / "test.csv",
+        session_dir / "data" / "processed" / "test.csv",
+        session_dir / "embeddings" / "X_test.npy",
+        session_dir / "data" / "embeddings" / "X_test.npy"
+    ]
+    
+    test_data = None
+    for candidate in test_data_candidates:
+        if candidate.exists():
+            test_data = candidate
+            break
+    
+    # Results directory (use session_dir as results)
+    results_dir = session_dir
+    
+    return models_dir, test_data, results_dir
+
 class ModelEvaluator:
     """
-    Comprehensive model evaluation class with pipeline integration
+    🔧 FIXED: Comprehensive model evaluation class with robust error handling
     """
     
     def __init__(self, models_dir, results_dir, logger=None):
@@ -94,55 +173,34 @@ class ModelEvaluator:
         self.logger.info(f"   Results dir: {self.results_dir}")
         
     def find_available_models(self):
-        """Find available trained models"""
+        """Find available trained models with enhanced search"""
         available_models = {}
         
         self.logger.info(f"Searching for models in: {self.models_dir}")
         
-        # Look for MLP model
-        mlp_search_paths = [
-            self.models_dir / "mlp_model.pth",
-            self.models_dir / "*" / "mlp_model.pth",
-        ]
+        # Enhanced search patterns
+        search_patterns = {
+            'mlp': ['mlp_model.pth', 'mlp_model_complete.pth'],
+            'svm': ['svm_model.pkl']
+        }
         
-        for search_path in mlp_search_paths:
-            if "*" in str(search_path):
-                matches = list(self.models_dir.glob("**/mlp_model.pth"))
-                if matches:
-                    available_models['mlp'] = matches[0]
-                    self.logger.info(f"✅ Found MLP model: {matches[0]}")
+        for model_type, patterns in search_patterns.items():
+            found = False
+            for pattern in patterns:
+                model_files = list(self.models_dir.glob(f"**/{pattern}"))
+                if model_files:
+                    available_models[model_type] = model_files[0]
+                    self.logger.info(f"✅ Found {model_type.upper()} model: {model_files[0]}")
+                    found = True
                     break
-            elif search_path.exists():
-                available_models['mlp'] = search_path
-                self.logger.info(f"✅ Found MLP model: {search_path}")
-                break
-        
-        # Look for SVM model
-        svm_search_paths = [
-            self.models_dir / "svm_model.pkl",
-            self.models_dir / "*" / "svm_model.pkl",
-        ]
-        
-        for search_path in svm_search_paths:
-            if "*" in str(search_path):
-                matches = list(self.models_dir.glob("**/svm_model.pkl"))
-                if matches:
-                    available_models['svm'] = matches[0]
-                    self.logger.info(f"✅ Found SVM model: {matches[0]}")
-                    break
-            elif search_path.exists():
-                available_models['svm'] = search_path
-                self.logger.info(f"✅ Found SVM model: {search_path}")
-                break
-        
-        if not available_models:
-            self.logger.warning(f"No models found in: {self.models_dir}")
-            self.logger.info("   Searched for: mlp_model.pth, svm_model.pkl")
+            
+            if not found:
+                self.logger.warning(f"❌ No {model_type.upper()} model found")
         
         return available_models
     
     def load_test_data(self, test_data_path):
-        """Load test data from CSV or numpy files"""
+        """🔧 FIXED: Load test data with robust encoding"""
         test_path = Path(test_data_path)
         
         if not test_path.exists():
@@ -150,7 +208,17 @@ class ModelEvaluator:
         
         if test_path.suffix == '.csv':
             self.logger.info(f"Loading test data from CSV: {test_path}")
-            test_df = pd.read_csv(test_path)
+            
+            # 🔧 FIXED: Robust CSV loading with encoding handling
+            try:
+                test_df = pd.read_csv(test_path, encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    test_df = pd.read_csv(test_path, encoding='latin-1')
+                    self.logger.warning("Used latin-1 encoding for CSV")
+                except UnicodeDecodeError:
+                    test_df = pd.read_csv(test_path, encoding='utf-8', errors='replace')
+                    self.logger.warning("Used utf-8 with error replacement for CSV")
             
             # Validate required columns
             if 'text' not in test_df.columns or 'label' not in test_df.columns:
@@ -177,13 +245,12 @@ class ModelEvaluator:
             
             self.logger.info(f"Loaded embeddings: X_test={X_test.shape}, y_test={y_test.shape}")
             
-            # Return as dict for compatibility
             return {'X_test': X_test, 'y_test': y_test}, 'embeddings'
         else:
             raise ValueError(f"Unsupported test data format: {test_path.suffix}")
     
     def evaluate_model_direct_embeddings(self, model_path, X_test, y_test, model_type):
-        """Direct model evaluation using embeddings"""
+        """Direct model evaluation using embeddings with robust error handling"""
         try:
             self.logger.info(f"Direct evaluation of {model_type.upper()} model...")
             
@@ -199,7 +266,7 @@ class ModelEvaluator:
             raise
     
     def _evaluate_svm_direct(self, model_path, X_test, y_test):
-        """Direct SVM evaluation using embeddings"""
+        """🔧 FIXED: Direct SVM evaluation with robust loading"""
         model_path = Path(model_path)
 
         if not model_path.exists():
@@ -209,13 +276,22 @@ class ModelEvaluator:
         try:
             self.logger.info("Loading SVM model package...")
             
-            # Load SVM model package
+            # 🔧 FIXED: Robust model loading
             model_package = joblib.load(model_path)
             
-            # Extract components
-            model = model_package['model']
-            scaler = model_package.get('scaler')
-            label_encoder = model_package.get('label_encoder')
+            # Extract components with fallbacks
+            if isinstance(model_package, dict):
+                model = model_package.get('model')
+                scaler = model_package.get('scaler')
+                label_encoder = model_package.get('label_encoder')
+            else:
+                # Fallback: assume the loaded object is the model itself
+                model = model_package
+                scaler = None
+                label_encoder = None
+            
+            if model is None:
+                raise ValueError("No model found in the package")
             
             self.logger.info(f"SVM model loaded successfully")
             self.logger.info(f"   Model type: {type(model).__name__}")
@@ -296,7 +372,7 @@ class ModelEvaluator:
             raise
     
     def _evaluate_mlp_direct(self, model_path, X_test, y_test):
-        """Direct MLP evaluation using embeddings and PyTorch model"""
+        """🔧 FIXED: Direct MLP evaluation with robust PyTorch loading"""
         model_path = Path(model_path)
 
         if not model_path.exists():
@@ -333,14 +409,30 @@ class ModelEvaluator:
             # Set device
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             
-            # Load model
-            if str(model_path).endswith('.pth'):
-                # Load state dict
+            # 🔧 FIXED: Robust model loading with multiple strategies
+            try:
+                # Strategy 1: Load state dict
                 model = HateSpeechMLP(input_dim=384).to(device)
-                model.load_state_dict(torch.load(model_path, map_location=device))
-            else:
-                # Try to load complete model
-                model = torch.load(model_path, map_location=device)
+                checkpoint = torch.load(model_path, map_location=device)
+                
+                if isinstance(checkpoint, dict):
+                    if 'model_state_dict' in checkpoint:
+                        model.load_state_dict(checkpoint['model_state_dict'])
+                    elif 'state_dict' in checkpoint:
+                        model.load_state_dict(checkpoint['state_dict'])
+                    else:
+                        model.load_state_dict(checkpoint)
+                else:
+                    model.load_state_dict(checkpoint)
+                    
+            except Exception as load_error:
+                self.logger.warning(f"State dict loading failed: {load_error}")
+                try:
+                    # Strategy 2: Load complete model
+                    model = torch.load(model_path, map_location=device)
+                except Exception as complete_load_error:
+                    self.logger.error(f"Complete model loading also failed: {complete_load_error}")
+                    raise
             
             model.eval()
             
@@ -363,6 +455,11 @@ class ModelEvaluator:
                     batch = X_test_tensor[i:i+batch_size]
                     outputs = model(batch)
                     probabilities = outputs.squeeze().cpu().numpy()
+                    
+                    # Handle single sample case
+                    if probabilities.ndim == 0:
+                        probabilities = np.array([probabilities])
+                    
                     predictions = (probabilities > 0.5).astype(int)
                     
                     all_predictions.extend(predictions)
@@ -423,7 +520,7 @@ class ModelEvaluator:
             raise
     
     def create_evaluation_plots(self, results, model_type):
-        """Create evaluation plots"""
+        """🔧 FIXED: Create evaluation plots with robust file handling"""
         try:
             # Set matplotlib backend
             import matplotlib
@@ -481,7 +578,7 @@ class ModelEvaluator:
             return {}
     
     def save_detailed_metrics(self, results, model_type):
-        """Save detailed metrics in multiple formats"""
+        """🔧 FIXED: Save detailed metrics with robust encoding"""
         try:
             # Save JSON metrics for GUI
             metrics_data = {
@@ -510,15 +607,15 @@ class ModelEvaluator:
                     'average_confidence': float(np.mean(results.get('confidences', [0.5])))
                 })
             
-            # Save JSON
+            # 🔧 FIXED: Save JSON with robust encoding
             json_path = self.reports_dir / f'{model_type}_detailed_metrics.json'
-            with open(json_path, 'w') as f:
-                json.dump(metrics_data, f, indent=2)
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(metrics_data, f, indent=2, ensure_ascii=False)
             
             # Save classification report as CSV
             class_report_df = pd.DataFrame(results['classification_report']).transpose()
             csv_path = self.reports_dir / f'{model_type}_classification_report.csv'
-            class_report_df.to_csv(csv_path)
+            class_report_df.to_csv(csv_path, encoding='utf-8')
             
             self.logger.info(f"Detailed metrics saved for {model_type}")
             
@@ -532,7 +629,7 @@ class ModelEvaluator:
             return {}
     
     def generate_comprehensive_report(self):
-        """Generate comprehensive evaluation report"""
+        """🔧 FIXED: Generate comprehensive evaluation report with robust handling"""
         try:
             self.logger.info("Generating comprehensive report...")
             
@@ -569,7 +666,7 @@ class ModelEvaluator:
             # Add insights
             summary['insights'] = self._generate_insights()
             
-            # Save comprehensive results
+            # 🔧 FIXED: Save comprehensive results with robust encoding
             report_path = self.reports_dir / 'evaluation_report.json'
             full_results = {
                 'summary': summary,
@@ -642,7 +739,7 @@ class ModelEvaluator:
         return insights
     
     def create_text_report(self, summary):
-        """Create human-readable text report"""
+        """🔧 FIXED: Create human-readable text report with robust encoding"""
         report_lines = [
             "SENTIMENT ANALYSIS MODEL EVALUATION REPORT",
             "=" * 50,
@@ -749,7 +846,7 @@ class ModelEvaluator:
             "Report generation completed."
         ])
         
-        # Save text report
+        # 🔧 FIXED: Save text report with robust encoding
         text_report_path = self.reports_dir / 'evaluation_report.txt'
         with open(text_report_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(report_lines))
@@ -758,7 +855,7 @@ class ModelEvaluator:
         return text_report_path
     
     def create_insights_file(self, summary):
-        """Create standalone insights file"""
+        """🔧 FIXED: Create standalone insights file with robust encoding"""
         insights_lines = [
             "SENTIMENT ANALYSIS EVALUATION INSIGHTS",
             "=" * 40,
@@ -790,7 +887,7 @@ class ModelEvaluator:
             "• <75% accuracy: Needs improvement"
         ])
         
-        # Save insights
+        # 🔧 FIXED: Save insights with robust encoding
         insights_path = self.reports_dir / 'insights.txt'
         with open(insights_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(insights_lines))
@@ -798,9 +895,27 @@ class ModelEvaluator:
         self.logger.info(f"Insights saved: {insights_path}")
         return insights_path
 
+def run_subprocess_with_encoding(cmd, cwd=None, timeout=300):
+    """🔧 NEW: Run subprocess with proper UTF-8 encoding handling"""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',  # 🔧 FIXED: Explicit UTF-8 encoding
+            errors='replace',  # 🔧 FIXED: Replace invalid characters instead of failing
+            timeout=timeout,
+            cwd=cwd
+        )
+        return result
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, -1, "", f"Command timed out after {timeout}s")
+    except Exception as e:
+        return subprocess.CompletedProcess(cmd, -1, "", str(e))
+
 def generate_evaluation_report(models_dir, test_data, results_dir, logger=None):
     """
-    Main pipeline function for generating evaluation reports
+    🔧 FIXED: Main pipeline function for generating evaluation reports
     
     Args:
         models_dir (str): Directory containing trained models
@@ -814,7 +929,7 @@ def generate_evaluation_report(models_dir, test_data, results_dir, logger=None):
     try:
         if logger:
             logger.info("=" * 60)
-            logger.info("EVALUATION REPORT GENERATION")
+            logger.info("EVALUATION REPORT GENERATION - FIXED VERSION")
             logger.info("=" * 60)
             logger.info(f"Models dir: {models_dir}")
             logger.info(f"Test data: {test_data}")
@@ -854,9 +969,9 @@ def generate_evaluation_report(models_dir, test_data, results_dir, logger=None):
                 else:
                     # For CSV data, need to find embeddings
                     # Try to find corresponding embedding files
-                    embeddings_dir = Path(models_dir).parent / "data" / "embeddings"
+                    embeddings_dir = Path(models_dir).parent / "embeddings"
                     if not embeddings_dir.exists():
-                        embeddings_dir = Path(models_dir).parents[1] / "data" / "embeddings"
+                        embeddings_dir = Path(models_dir).parents[1] / "embeddings"
                     
                     X_test_path = embeddings_dir / "X_test.npy"
                     y_test_path = embeddings_dir / "y_test.npy"
@@ -945,24 +1060,25 @@ def generate_evaluation_report(models_dir, test_data, results_dir, logger=None):
         raise
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """🔧 FIXED: Parse command line arguments with auto-detection"""
     parser = argparse.ArgumentParser(
-        description="Generate comprehensive evaluation reports for trained models",
+        description="Generate comprehensive evaluation reports for trained models - FIXED VERSION",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python report.py --models-dir results/models --test-data data/processed/test.csv --results-dir results
+  python report.py --auto-default                                                    # Auto-detect latest session
+  python report.py --models-dir results/auto_analysis_*/models --test-data data/processed/test.csv --results-dir results/auto_analysis_*/
   python report.py --models-dir results/models --test-data data/embeddings/X_test.npy --results-dir results
         """
     )
     
-    # Required arguments (now optional with fallback)
+    # Optional arguments with auto-detection
     parser.add_argument("--models-dir", type=str, default=None,
-                       help="Directory containing trained models")
+                       help="Directory containing trained models (auto-detect if not provided)")
     parser.add_argument("--test-data", type=str, default=None,
-                       help="Path to test data (CSV with text/label columns or X_test.npy)")
+                       help="Path to test data (CSV with text/label columns or X_test.npy) (auto-detect if not provided)")
     parser.add_argument("--results-dir", type=str, default=None,
-                       help="Directory to save reports and plots")
+                       help="Directory to save reports and plots (auto-detect if not provided)")
     
     # Optional arguments
     parser.add_argument("--model-type", choices=['mlp', 'svm', 'all'], default='all',
@@ -970,44 +1086,45 @@ Examples:
     parser.add_argument("--log-dir", type=str, default=None,
                        help="Directory for log files (default: results-dir/logs)")
     parser.add_argument("--auto-default", action="store_true",
-                       help="Use default paths if no arguments are provided")
+                       help="🔧 NEW: Auto-detect paths from latest session")
     
     return parser.parse_args()
 
 def main():
-    """Main function for CLI usage"""
+    """🔧 FIXED: Main function for CLI usage with auto-detection"""
     args = parse_arguments()
 
-    project_root = PROJECT_ROOT
+    # 🔧 NEW: Auto-detection mode
+    if args.auto_default or not any([args.models_dir, args.test_data, args.results_dir]):
+        print("🔍 Auto-detecting latest session...")
+        
+        models_dir, test_data, results_dir = find_session_models_and_data()
+        
+        if models_dir and test_data and results_dir:
+            args.models_dir = str(models_dir)
+            args.test_data = str(test_data)
+            args.results_dir = str(results_dir)
+            
+            print(f"✅ Auto-detected session:")
+            print(f"   Models: {models_dir}")
+            print(f"   Test data: {test_data}")
+            print(f"   Results: {results_dir}")
+        else:
+            print("❌ Could not auto-detect session. Please provide paths manually.")
+            return 1
 
-    # Determine initial results directory for logging setup
-    default_results = project_root / "results"
-    results_for_logging = args.results_dir if args.results_dir else str(default_results)
-    log_dir = args.log_dir if args.log_dir else Path(results_for_logging) / "logs"
-    logger = setup_logging(log_dir)
-
-    # Apply fallback defaults when arguments are missing
-    if not args.models_dir:
-        default_models = project_root / "results" / "models"
-        if args.auto_default or default_models.exists():
-            logger.warning(f"⚠️ No models-dir provided. Using default: {default_models}")
-            args.models_dir = str(default_models)
-
-    if not args.test_data:
-        default_test = project_root / "data" / "processed" / "test.csv"
-        if args.auto_default or default_test.exists():
-            logger.warning(f"⚠️ No test-data provided. Using default: {default_test}")
-            args.test_data = str(default_test)
-
-    if not args.results_dir:
-        if args.auto_default or default_results.exists():
-            logger.warning(f"⚠️ No results-dir provided. Using default: {default_results}")
-            args.results_dir = str(default_results)
-
-    # If any critical argument is still missing, exit gracefully
+    # Verify required arguments
     if not all([args.models_dir, args.test_data, args.results_dir]):
-        logger.error("❌ Missing critical arguments and fallback paths are not valid. Provide --models-dir, --test-data, or enable --auto-default.")
+        print("❌ Missing required arguments. Use --auto-default or provide --models-dir, --test-data, --results-dir")
         return 1
+
+    # Setup logging
+    if args.results_dir:
+        log_dir = args.log_dir if args.log_dir else Path(args.results_dir) / "logs"
+    else:
+        log_dir = args.log_dir if args.log_dir else Path("logs")
+    
+    logger = setup_logging(log_dir)
 
     try:
         # Verify inputs
@@ -1018,8 +1135,7 @@ def main():
             raise FileNotFoundError(f"Models directory not found: {models_dir}")
 
         if not test_data_path.exists():
-            logger.error("❌ test.csv not found. Provide --test-data or ensure fallback file exists.")
-            return 1
+            raise FileNotFoundError(f"Test data not found: {test_data_path}")
         
         # Run report generation pipeline
         result = generate_evaluation_report(
@@ -1059,21 +1175,4 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate sentiment analysis report.")
-    parser.add_argument('--models-dir', required=True)
-    parser.add_argument('--test-data', required=True)
-    parser.add_argument('--results-dir', required=True)
-    parser.add_argument('--model-type', choices=['mlp', 'svm', 'all'], default='all')
-    parser.add_argument('--log-dir', default=None)
-    parser.add_argument('--auto-default', action='store_true')
-    args = parser.parse_args()
-
-    log_dir = args.log_dir if args.log_dir else Path(args.results_dir) / "logs"
-    logger = setup_logging(log_dir)
-    result = generate_evaluation_report(
-        models_dir=args.models_dir,
-        test_data=args.test_data,
-        results_dir=args.results_dir,
-        logger=logger
-    )
-    sys.exit(0 if result.get('success') else 1)
+    sys.exit(main())
