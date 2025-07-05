@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
-Advanced Embedding Generation Script - COMPLETE PIPELINE INTEGRATION (IMPROVED)
+Advanced Embedding Generation Script - COMPLETE PIPELINE + EXTERNAL CSV INTEGRATION
 Generates sentence embeddings for sentiment analysis with comprehensive pipeline integration.
-Now supports both TRAINING and INFERENCE modes with robust error handling.
+Now supports both TRAINING and INFERENCE modes with robust error handling + EXTERNAL CSV PROCESSING.
+
+🆕 NEW FEATURES:
+- ✅ Support for external CSV files via --input-file parameter
+- ✅ Automatic output directory creation: results/embedded/FILENAME_TIMESTAMP/
+- ✅ Graceful handling of CSV files with/without label columns
+- ✅ Compatible output format for train_mlp.py and train_svm.py integration
+- ✅ Comprehensive logging and metadata generation
+- ✅ Full backward compatibility with existing pipeline behavior
 
 FEATURES:
 - Dynamic path detection with robust PROJECT_ROOT handling
@@ -18,6 +26,7 @@ FEATURES:
 - **NEW: Full support for both TRAINING and INFERENCE modes**
 - **NEW: Automatic mode detection and graceful handling of missing labels**
 - **NEW: Support for inference.csv files**
+- **NEW: Support for external CSV files with automatic processing**
 - **NEW: Robust handling of empty/missing files**
 
 USAGE:
@@ -26,6 +35,10 @@ USAGE:
     
     # Custom input/output directories (pipeline integration)
     python scripts/embed_dataset.py --input-dir results/session_20241229/processed --output-dir results/session_20241229/embeddings
+    
+    # NEW: External CSV file processing
+    python scripts/embed_dataset.py --input-file data/external/reviews.csv
+    python scripts/embed_dataset.py --input-file uploaded_file.csv --model-name all-mpnet-base-v2
     
     # Inference mode with inference.csv
     python scripts/embed_dataset.py --inference-only --input-dir data/inference
@@ -51,6 +64,7 @@ from datetime import datetime
 from tqdm import tqdm
 from typing import Dict, List, Optional, Any, Tuple
 import time
+import re
 
 warnings.filterwarnings('ignore')
 
@@ -123,7 +137,7 @@ class AdvancedEmbeddingGenerator:
     """
     Advanced embedding generation class with comprehensive pipeline integration.
     Handles model management, progress tracking, error recovery, and quality assurance.
-    Now supports both TRAINING and INFERENCE modes with robust error handling.
+    Now supports both TRAINING and INFERENCE modes with robust error handling + EXTERNAL CSV PROCESSING.
     """
     
     def __init__(self, project_root: Optional[str] = None):
@@ -155,9 +169,591 @@ class AdvancedEmbeddingGenerator:
             'scripts_dir': self.project_root / "scripts"
         }
     
+    def clean_text(self, text: str) -> str:
+        """
+        Clean and normalize text for processing.
+        
+        Args:
+            text: Raw text string
+            
+        Returns:
+            Cleaned text string
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # Remove URLs
+        text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
+        
+        # Remove email addresses
+        text = re.sub(r'\S+@\S+', '', text)
+        
+        # Keep letters, numbers, and basic punctuation
+        text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', ' ', text)
+        
+        # Remove extra whitespace
+        text = ' '.join(text.split())
+        
+        return text.strip()
+    
+    def validate_csv_file(self, csv_path: Path) -> Dict[str, Any]:
+        """
+        🆕 NEW: Validate and analyze an external CSV file.
+        
+        Args:
+            csv_path: Path to the CSV file
+            
+        Returns:
+            Dictionary with validation results and file info
+        """
+        validation_info = {
+            'valid': False,
+            'file_path': str(csv_path),
+            'file_size_mb': 0,
+            'total_rows': 0,
+            'columns': [],
+            'text_column': None,
+            'label_column': None,
+            'has_labels': False,
+            'valid_text_rows': 0,
+            'empty_text_rows': 0,
+            'label_distribution': {},
+            'errors': [],
+            'warnings': []
+        }
+        
+        try:
+            # Check file existence
+            if not csv_path.exists():
+                validation_info['errors'].append(f"File not found: {csv_path}")
+                return validation_info
+            
+            # Get file size
+            validation_info['file_size_mb'] = csv_path.stat().st_size / (1024 * 1024)
+            
+            # Load and analyze CSV
+            try:
+                df = pd.read_csv(csv_path)
+                validation_info['total_rows'] = len(df)
+                validation_info['columns'] = list(df.columns)
+                
+                if len(df) == 0:
+                    validation_info['errors'].append("CSV file is empty")
+                    return validation_info
+                
+                self.logger.info(f"📊 Loaded CSV: {len(df)} rows, {len(df.columns)} columns")
+                self.logger.info(f"📋 Columns: {list(df.columns)}")
+                
+            except Exception as e:
+                validation_info['errors'].append(f"Error reading CSV: {str(e)}")
+                return validation_info
+            
+            # Find text column
+            text_columns = ['text', 'review', 'content', 'comment', 'description', 'message', 'body', 'post']
+            found_text_col = None
+            
+            for col in text_columns:
+                if col in df.columns:
+                    found_text_col = col
+                    break
+            
+            if not found_text_col:
+                # Try to find any string column that might contain text
+                for col in df.columns:
+                    if df[col].dtype == 'object':
+                        sample_text = str(df[col].iloc[0]) if len(df) > 0 else ""
+                        if len(sample_text.split()) > 3:  # Likely to be text if more than 3 words
+                            found_text_col = col
+                            validation_info['warnings'].append(f"Using column '{col}' as text column (auto-detected)")
+                            break
+            
+            if not found_text_col:
+                validation_info['errors'].append(f"No text column found. Expected: {text_columns}")
+                return validation_info
+            
+            validation_info['text_column'] = found_text_col
+            
+            # Analyze text data
+            text_data = df[found_text_col].fillna('').astype(str)
+            text_data_cleaned = text_data.apply(self.clean_text)
+            
+            # Count valid vs empty texts
+            valid_mask = text_data_cleaned.str.len() > 5  # Minimum 5 characters
+            validation_info['valid_text_rows'] = valid_mask.sum()
+            validation_info['empty_text_rows'] = len(df) - valid_mask.sum()
+            
+            if validation_info['valid_text_rows'] == 0:
+                validation_info['errors'].append("No valid text data found (all texts are empty or too short)")
+                return validation_info
+            
+            # Find label column
+            label_columns = ['label', 'sentiment', 'class', 'target', 'rating', 'score']
+            found_label_col = None
+            
+            for col in label_columns:
+                if col in df.columns:
+                    found_label_col = col
+                    break
+            
+            if found_label_col:
+                validation_info['label_column'] = found_label_col
+                validation_info['has_labels'] = True
+                
+                # Analyze label distribution
+                label_data = df[found_label_col].dropna()
+                if len(label_data) > 0:
+                    label_counts = label_data.value_counts()
+                    validation_info['label_distribution'] = label_counts.to_dict()
+                    
+                    self.logger.info(f"🏷️ Found labels in column '{found_label_col}'")
+                    self.logger.info(f"📊 Label distribution: {dict(label_counts)}")
+                    
+                    # Check for valid binary/multi-class labels
+                    unique_labels = label_data.unique()
+                    if len(unique_labels) < 2:
+                        validation_info['warnings'].append("Only one unique label found")
+                    elif len(unique_labels) > 10:
+                        validation_info['warnings'].append(f"Many unique labels found ({len(unique_labels)}), this might be a regression task")
+                else:
+                    validation_info['warnings'].append(f"Label column '{found_label_col}' contains no valid data")
+                    validation_info['has_labels'] = False
+            else:
+                validation_info['warnings'].append(f"No label column found. Expected: {label_columns}")
+                validation_info['has_labels'] = False
+            
+            # Final validation
+            if validation_info['valid_text_rows'] > 0:
+                validation_info['valid'] = True
+                self.logger.info(f"✅ CSV validation passed")
+                self.logger.info(f"   📊 Valid text rows: {validation_info['valid_text_rows']}")
+                self.logger.info(f"   🏷️ Has labels: {validation_info['has_labels']}")
+                
+                if validation_info['empty_text_rows'] > 0:
+                    self.logger.warning(f"   ⚠️ Empty/invalid text rows: {validation_info['empty_text_rows']}")
+            
+            return validation_info
+            
+        except Exception as e:
+            validation_info['errors'].append(f"Unexpected error during validation: {str(e)}")
+            return validation_info
+    
+    def create_external_output_directory(self, csv_path: Path) -> Path:
+        """
+        🆕 NEW: Create output directory for external CSV processing.
+        
+        Args:
+            csv_path: Path to the input CSV file
+            
+        Returns:
+            Path to the created output directory
+        """
+        # Extract filename without extension
+        filename_base = csv_path.stem
+        
+        # Create timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Create directory name
+        dir_name = f"{filename_base}_{timestamp}"
+        
+        # Create full path
+        output_dir = self.paths['results_dir'] / "embedded" / dir_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create subdirectories
+        for subdir in ['embeddings', 'logs', 'metadata']:
+            (output_dir / subdir).mkdir(exist_ok=True)
+        
+        self.logger.info(f"📁 Created external processing directory: {output_dir}")
+        
+        return output_dir
+    
+    def process_external_csv_file(self, csv_path: Path, model_name: str = DEFAULT_EMBEDDING_MODEL,
+                                 batch_size: int = None, max_length: int = None,
+                                 force_recreate: bool = False) -> Dict[str, Any]:
+        """
+        🆕 NEW: Process an external CSV file and generate embeddings.
+        
+        Args:
+            csv_path: Path to the CSV file
+            model_name: SentenceTransformer model name
+            batch_size: Batch size for processing
+            max_length: Maximum sequence length
+            force_recreate: Force recreation even if files exist
+            
+        Returns:
+            Processing results dictionary
+        """
+        start_time = time.time()
+        
+        # Setup defaults
+        if batch_size is None:
+            batch_size = DEFAULT_TRAIN_PARAMS['embedding_batch_size']
+        if max_length is None:
+            max_length = DEFAULT_TRAIN_PARAMS['max_sequence_length']
+        
+        self.logger.info(f"🆕 Processing external CSV file: {csv_path}")
+        self.logger.info(f"   🤖 Model: {model_name}")
+        self.logger.info(f"   ⚙️ Batch size: {batch_size}")
+        self.logger.info(f"   📏 Max length: {max_length}")
+        
+        # Validate CSV file
+        validation = self.validate_csv_file(csv_path)
+        if not validation['valid']:
+            return {
+                'success': False,
+                'error': 'CSV validation failed',
+                'validation_results': validation,
+                'errors': validation['errors']
+            }
+        
+        # Create output directory
+        output_dir = self.create_external_output_directory(csv_path)
+        
+        # Setup logging for this processing session
+        log_file = output_dir / "logs" / f"processing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        
+        # Load CSV data
+        try:
+            df = pd.read_csv(csv_path)
+            self.logger.info(f"📊 Loaded CSV data: {len(df)} rows")
+            
+            # Extract and clean text data
+            text_column = validation['text_column']
+            texts = df[text_column].fillna('').astype(str).tolist()
+            
+            # Clean texts
+            cleaned_texts = [self.clean_text(text) for text in texts]
+            
+            # Filter out empty texts
+            valid_indices = [i for i, text in enumerate(cleaned_texts) if len(text) > 5]
+            valid_texts = [cleaned_texts[i] for i in valid_indices]
+            
+            original_count = len(texts)
+            valid_count = len(valid_texts)
+            removed_count = original_count - valid_count
+            
+            self.logger.info(f"📊 Text processing results:")
+            self.logger.info(f"   Original texts: {original_count}")
+            self.logger.info(f"   Valid texts: {valid_count}")
+            self.logger.info(f"   Removed texts: {removed_count}")
+            
+            if valid_count == 0:
+                return {
+                    'success': False,
+                    'error': 'No valid texts found after cleaning',
+                    'original_count': original_count,
+                    'removed_count': removed_count
+                }
+            
+            # Handle labels
+            labels = []
+            if validation['has_labels']:
+                label_column = validation['label_column']
+                all_labels = df[label_column].tolist()
+                
+                # Filter labels to match valid texts
+                labels = [all_labels[i] for i in valid_indices]
+                
+                # Normalize labels if needed
+                unique_labels = list(set(label for label in labels if pd.notna(label)))
+                
+                if set(unique_labels) == {'positive', 'negative'}:
+                    labels = [1 if label == 'positive' else 0 if label == 'negative' else -1 for label in labels]
+                    self.logger.info("🔄 Mapped text labels: negative→0, positive→1")
+                elif set(unique_labels) == {'pos', 'neg'}:
+                    labels = [1 if label == 'pos' else 0 if label == 'neg' else -1 for label in labels]
+                    self.logger.info("🔄 Mapped short labels: neg→0, pos→1")
+                elif len(unique_labels) == 2 and all(isinstance(l, (int, float)) for l in unique_labels if pd.notna(l)):
+                    # Ensure binary labels are 0 and 1
+                    sorted_labels = sorted(unique_labels)
+                    label_mapping = {sorted_labels[0]: 0, sorted_labels[1]: 1}
+                    labels = [label_mapping.get(label, -1) for label in labels]
+                    self.logger.info(f"🔄 Mapped numeric labels: {label_mapping}")
+                
+            else:
+                # Create placeholder labels for texts without labels
+                labels = [-1] * valid_count  # Use -1 as placeholder for no labels
+                self.logger.info("🔍 No labels found, using placeholder labels (-1)")
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error processing CSV data: {str(e)}',
+                'csv_path': str(csv_path)
+            }
+        
+        # Load embedding model
+        try:
+            model = self.load_model_advanced(model_name, max_length)
+            embedding_dim = model.encode(["test"], convert_to_numpy=True).shape[1]
+            
+            self.logger.info(f"✅ Model loaded: {model_name}")
+            self.logger.info(f"📏 Embedding dimension: {embedding_dim}")
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error loading model: {str(e)}',
+                'model_name': model_name
+            }
+        
+        # Generate embeddings
+        try:
+            self.logger.info(f"🔄 Generating embeddings for {valid_count} texts...")
+            
+            embeddings = []
+            
+            # Process in batches with progress tracking
+            if valid_count > 100:
+                progress_bar = tqdm(
+                    range(0, valid_count, batch_size),
+                    desc="Generating embeddings",
+                    unit="batch"
+                )
+            else:
+                progress_bar = range(0, valid_count, batch_size)
+            
+            embedding_start_time = time.time()
+            
+            for i in progress_bar:
+                batch_texts = valid_texts[i:i+batch_size]
+                
+                try:
+                    batch_embeddings = model.encode(
+                        batch_texts,
+                        convert_to_numpy=True,
+                        show_progress_bar=False,
+                        batch_size=batch_size
+                    )
+                    embeddings.append(batch_embeddings)
+                    
+                except Exception as batch_error:
+                    self.logger.error(f"❌ Error processing batch {i//batch_size + 1}: {batch_error}")
+                    # Add zero embeddings for failed batch
+                    embeddings.append(np.zeros((len(batch_texts), embedding_dim)))
+            
+            # Combine all embeddings
+            if embeddings:
+                all_embeddings = np.vstack(embeddings)
+            else:
+                return {
+                    'success': False,
+                    'error': 'No embeddings generated',
+                    'valid_count': valid_count
+                }
+            
+            all_labels = np.array(labels)
+            
+            embedding_time = time.time() - embedding_start_time
+            
+            self.logger.info(f"✅ Embeddings generated successfully")
+            self.logger.info(f"   📊 Shape: {all_embeddings.shape}")
+            self.logger.info(f"   ⏱️ Generation time: {embedding_time:.2f} seconds")
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error generating embeddings: {str(e)}',
+                'valid_count': valid_count
+            }
+        
+        # Save embeddings and labels
+        try:
+            embeddings_file = output_dir / "embeddings" / "X_embedded.npy"
+            labels_file = output_dir / "embeddings" / "y_labels.npy"
+            
+            np.save(embeddings_file, all_embeddings)
+            np.save(labels_file, all_labels)
+            
+            self.logger.info(f"💾 Saved embeddings: {embeddings_file}")
+            self.logger.info(f"💾 Saved labels: {labels_file}")
+            
+            # Verify saved files
+            saved_embeddings = np.load(embeddings_file)
+            saved_labels = np.load(labels_file)
+            
+            if saved_embeddings.shape[0] != saved_labels.shape[0]:
+                raise ValueError(f"Shape mismatch: embeddings {saved_embeddings.shape} vs labels {saved_labels.shape}")
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Error saving embeddings: {str(e)}',
+                'output_dir': str(output_dir)
+            }
+        
+        # Create comprehensive metadata
+        total_time = time.time() - start_time
+        
+        metadata = {
+            'processing_info': {
+                'timestamp': datetime.now().isoformat(),
+                'processing_type': 'external_csv',
+                'input_file': str(csv_path),
+                'output_directory': str(output_dir),
+                'model_name': model_name,
+                'embedding_dimension': embedding_dim,
+                'max_sequence_length': max_length,
+                'batch_size': batch_size,
+                'total_processing_time_seconds': total_time,
+                'embedding_generation_time_seconds': embedding_time,
+                'model_load_time_seconds': self.model_load_time
+            },
+            'input_file_info': {
+                'file_path': str(csv_path),
+                'file_size_mb': validation['file_size_mb'],
+                'original_rows': validation['total_rows'],
+                'text_column_used': validation['text_column'],
+                'label_column_used': validation['label_column'],
+                'has_labels': validation['has_labels']
+            },
+            'data_processing': {
+                'original_text_count': original_count,
+                'valid_text_count': valid_count,
+                'removed_text_count': removed_count,
+                'processing_success_rate': valid_count / original_count if original_count > 0 else 0,
+                'label_distribution': validation['label_distribution']
+            },
+            'model_details': {
+                'model_type': 'SentenceTransformer',
+                'model_name': model_name,
+                'embedding_dimension': embedding_dim,
+                'max_sequence_length': max_length,
+                'device': self._get_safe_device_info(model)
+            },
+            'output_files': {
+                'embeddings_file': str(embeddings_file),
+                'labels_file': str(labels_file),
+                'metadata_file': str(output_dir / "metadata" / "processing_metadata.json"),
+                'log_file': str(log_file)
+            },
+            'quality_metrics': {
+                'embeddings_shape': all_embeddings.shape,
+                'labels_shape': all_labels.shape,
+                'mean_embedding_norm': float(np.linalg.norm(all_embeddings, axis=1).mean()),
+                'embedding_std': float(np.std(all_embeddings.mean(axis=0))),
+                'nan_count': int(np.isnan(all_embeddings).sum()),
+                'inf_count': int(np.isinf(all_embeddings).sum())
+            },
+            'performance_metrics': {
+                'texts_per_second': valid_count / embedding_time if embedding_time > 0 else 0,
+                'mb_per_sample': (embeddings_file.stat().st_size + labels_file.stat().st_size) / (1024 * 1024) / valid_count if valid_count > 0 else 0,
+                'total_output_size_mb': (embeddings_file.stat().st_size + labels_file.stat().st_size) / (1024 * 1024)
+            },
+            'compatibility_info': {
+                'compatible_with': ['train_mlp.py', 'train_svm.py', 'report.py'],
+                'usage_instructions': {
+                    'mlp_training': f'python scripts/train_mlp.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}',
+                    'svm_training': f'python scripts/train_svm.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}',
+                    'generate_report': f'python scripts/report.py --models-dir {output_dir}/models --test-data {output_dir}/embeddings/X_embedded.npy --results-dir {output_dir}'
+                }
+            }
+        }
+        
+        # Save metadata
+        metadata_file = output_dir / "metadata" / "processing_metadata.json"
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False, default=str)
+        
+        # Create processing summary
+        summary_file = output_dir / "processing_summary.txt"
+        summary_lines = [
+            "EXTERNAL CSV PROCESSING SUMMARY",
+            "=" * 50,
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Input File: {csv_path}",
+            f"Output Directory: {output_dir}",
+            "",
+            "PROCESSING RESULTS:",
+            f"  Original texts: {original_count}",
+            f"  Valid texts processed: {valid_count}",
+            f"  Removed texts: {removed_count}",
+            f"  Success rate: {valid_count/original_count*100:.1f}%",
+            "",
+            "EMBEDDINGS:",
+            f"  Model: {model_name}",
+            f"  Dimension: {embedding_dim}",
+            f"  Shape: {all_embeddings.shape}",
+            f"  Generation time: {embedding_time:.2f}s",
+            "",
+            "LABELS:",
+            f"  Has labels: {validation['has_labels']}",
+            f"  Label column: {validation['label_column'] or 'None'}",
+            f"  Label distribution: {validation['label_distribution']}",
+            "",
+            "OUTPUT FILES:",
+            f"  Embeddings: {embeddings_file}",
+            f"  Labels: {labels_file}",
+            f"  Metadata: {metadata_file}",
+            "",
+            "NEXT STEPS:",
+            "  1. Train MLP model:",
+            f"     python scripts/train_mlp.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}",
+            "  2. Train SVM model:",
+            f"     python scripts/train_svm.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}",
+            "  3. Generate report:",
+            f"     python scripts/report.py --models-dir {output_dir}/models --test-data {output_dir}/embeddings/X_embedded.npy --results-dir {output_dir}",
+            "",
+            "=" * 50
+        ]
+        
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(summary_lines))
+        
+        # Log final results
+        self.logger.info(f"🎉 EXTERNAL CSV PROCESSING COMPLETED SUCCESSFULLY!")
+        self.logger.info(f"   ⏱️ Total time: {total_time:.1f}s")
+        self.logger.info(f"   📊 Processed: {valid_count}/{original_count} texts")
+        self.logger.info(f"   📁 Output directory: {output_dir}")
+        self.logger.info(f"   📄 Summary: {summary_file}")
+        
+        # Return comprehensive results
+        return {
+            'success': True,
+            'processing_type': 'external_csv',
+            'input_file': str(csv_path),
+            'output_directory': str(output_dir),
+            'embeddings_file': str(embeddings_file),
+            'labels_file': str(labels_file),
+            'metadata_file': str(metadata_file),
+            'summary_file': str(summary_file),
+            'processing_results': {
+                'original_count': original_count,
+                'valid_count': valid_count,
+                'removed_count': removed_count,
+                'success_rate': valid_count / original_count if original_count > 0 else 0,
+                'has_labels': validation['has_labels'],
+                'embedding_shape': all_embeddings.shape,
+                'labels_shape': all_labels.shape
+            },
+            'model_info': {
+                'model_name': model_name,
+                'embedding_dimension': embedding_dim,
+                'batch_size': batch_size,
+                'max_length': max_length
+            },
+            'timing': {
+                'total_time': total_time,
+                'embedding_time': embedding_time,
+                'model_load_time': self.model_load_time
+            },
+            'next_steps': {
+                'mlp_training': f'python scripts/train_mlp.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}',
+                'svm_training': f'python scripts/train_svm.py --embeddings-dir {output_dir}/embeddings --output-dir {output_dir}',
+                'generate_report': f'python scripts/report.py --models-dir {output_dir}/models --test-data {output_dir}/embeddings/X_embedded.npy --results-dir {output_dir}'
+            }
+        }
+    
     def detect_operation_mode(self, input_dir: Path, inference_only: bool = False) -> Dict[str, Any]:
         """
-        NEW: Detect whether we're in training or inference mode based on available files.
+        Detect whether we're in training or inference mode based on available files.
         
         Args:
             input_dir: Input directory to analyze
@@ -359,7 +955,7 @@ class AdvancedEmbeddingGenerator:
     
     def check_label_balance(self, df: pd.DataFrame, filename: str) -> Dict[str, Any]:
         """
-        IMPROVED: Check for label distribution issues with inference mode support.
+        Check for label distribution issues with inference mode support.
         
         Args:
             df: DataFrame with optional label column
@@ -426,7 +1022,7 @@ class AdvancedEmbeddingGenerator:
     
     def validate_input_data_comprehensive(self, input_dir: Path, mode_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        IMPROVED: Comprehensive validation of input data with training/inference mode support.
+        Comprehensive validation of input data with training/inference mode support.
         
         Args:
             input_dir: Directory containing CSV files
@@ -602,7 +1198,7 @@ class AdvancedEmbeddingGenerator:
     
     def verify_embedding_quality(self, embeddings: np.ndarray, split_name: str) -> Dict[str, Any]:
         """
-        IMPROVED: Verify embedding quality with comprehensive checks.
+        Verify embedding quality with comprehensive checks.
         
         Args:
             embeddings: Generated embeddings array
@@ -672,7 +1268,7 @@ class AdvancedEmbeddingGenerator:
     def load_and_embed_split(self, input_dir: Path, split_name: str, model: SentenceTransformer, 
                            batch_size: int, embedding_dim: int, mode_info: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """
-        NEW: Load and embed a single split with robust error handling for training/inference modes.
+        Load and embed a single split with robust error handling for training/inference modes.
         
         Args:
             input_dir: Input directory
@@ -808,7 +1404,7 @@ class AdvancedEmbeddingGenerator:
                                    force_recreate: bool = False,
                                    inference_only: bool = False) -> Dict[str, Any]:
         """
-        IMPROVED: Generate embeddings with advanced progress tracking and training/inference mode support.
+        Generate embeddings with advanced progress tracking and training/inference mode support.
         
         Args:
             input_dir: Directory containing CSV files
@@ -1074,7 +1670,7 @@ class AdvancedEmbeddingGenerator:
     
     def _get_safe_device_info(self, model) -> str:
         """
-        IMPROVED: Safely get device information from model.
+        Safely get device information from model.
         
         Args:
             model: SentenceTransformer model
@@ -1095,7 +1691,7 @@ class AdvancedEmbeddingGenerator:
     def _print_generation_summary(self, results: Dict[str, Any], processing_time: float, 
                                  output_dir: Path, metadata_file: Path):
         """
-        IMPROVED: Print comprehensive generation summary with mode information.
+        Print comprehensive generation summary with mode information.
         
         Args:
             results: Generation results
@@ -1213,6 +1809,44 @@ def create_embeddings_pipeline_compatible(input_dir: str, output_dir: str,
             'inference_only': inference_only
         }
 
+def process_external_csv_file(csv_path: str, model_name: str = DEFAULT_EMBEDDING_MODEL,
+                             batch_size: int = None, max_length: int = None,
+                             force_recreate: bool = False) -> Dict[str, Any]:
+    """
+    🆕 NEW: Process a single external CSV file and generate embeddings.
+    
+    Args:
+        csv_path: Path to the CSV file
+        model_name: SentenceTransformer model name
+        batch_size: Batch size for processing
+        max_length: Maximum sequence length
+        force_recreate: Force recreation even if files exist
+    
+    Returns:
+        Processing results dictionary
+    """
+    try:
+        # Initialize generator
+        generator = AdvancedEmbeddingGenerator()
+        
+        # Convert path
+        csv_file_path = Path(csv_path)
+        
+        # Process the CSV file
+        results = generator.process_external_csv_file(
+            csv_file_path, model_name, batch_size, max_length, force_recreate
+        )
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"❌ External CSV processing failed: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'csv_path': csv_path
+        }
+
 # Legacy compatibility function (maintained for backward compatibility)
 def create_embeddings(input_dir, output_dir, model_name=DEFAULT_EMBEDDING_MODEL, 
                      batch_size=None, max_length=None, verbose=True):
@@ -1291,9 +1925,9 @@ def validate_input_files(input_dir, verbose=True):
 
 
 def main(argv=None):
-    """Enhanced main function with comprehensive CLI support and training/inference mode integration."""
+    """Enhanced main function with comprehensive CLI support and external CSV integration."""
     parser = argparse.ArgumentParser(
-        description="Advanced Embedding Generation for Sentiment Analysis (TRAINING/INFERENCE SUPPORT)",
+        description="Advanced Embedding Generation for Sentiment Analysis (TRAINING/INFERENCE/EXTERNAL CSV SUPPORT)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1302,6 +1936,10 @@ Examples:
   
   # Custom input/output directories (pipeline integration)
   %(prog)s --input-dir results/session_20241229/processed --output-dir results/session_20241229/embeddings
+  
+  # NEW: External CSV file processing
+  %(prog)s --input-file data/external/reviews.csv
+  %(prog)s --input-file uploaded_file.csv --model-name all-mpnet-base-v2
   
   # Force inference mode
   %(prog)s --inference-only --input-dir data/inference
@@ -1316,6 +1954,10 @@ Examples:
   %(prog)s --input-dir processed/ --output-dir embeddings/ --quiet --force-recreate
         """
     )
+    
+    # 🆕 NEW: External CSV file processing
+    parser.add_argument("--input-file", type=str, default=None,
+                       help="🆕 NEW: Path to external CSV file for processing (alternative to --input-dir)")
     
     # Input/Output paths (dynamic defaults)
     parser.add_argument("--input-dir", default=str(PROCESSED_DATA_DIR),
@@ -1371,6 +2013,57 @@ Examples:
     
     verbose = args.verbose and not args.quiet
     
+    # 🆕 NEW: Handle external CSV file processing
+    if args.input_file:
+        if verbose:
+            logger.info("🆕 Processing external CSV file with REAL pipeline")
+            logger.info(f"📄 Input file: {args.input_file}")
+            logger.info(f"🤖 Model: {args.model_name}")
+            logger.info(f"⚙️ Batch size: {args.batch_size}")
+            logger.info(f"📏 Max length: {args.max_length}")
+        
+        try:
+            # Process the external CSV file
+            results = process_external_csv_file(
+                csv_path=args.input_file,
+                model_name=args.model_name,
+                batch_size=args.batch_size,
+                max_length=args.max_length,
+                force_recreate=args.force_recreate
+            )
+            
+            if results['success']:
+                logger.info(f"🎉 EXTERNAL CSV PROCESSING COMPLETED SUCCESSFULLY!")
+                logger.info(f"   📄 Input file: {results['input_file']}")
+                logger.info(f"   📁 Output directory: {results['output_directory']}")
+                logger.info(f"   📊 Processed: {results['processing_results']['valid_count']}/{results['processing_results']['original_count']} texts")
+                logger.info(f"   ⏱️ Total time: {results['timing']['total_time']:.1f}s")
+                logger.info(f"   🚀 Next steps:")
+                logger.info(f"      • Train MLP: {results['next_steps']['mlp_training']}")
+                logger.info(f"      • Train SVM: {results['next_steps']['svm_training']}")
+                logger.info(f"      • Generate report: {results['next_steps']['generate_report']}")
+                
+                return 0
+            else:
+                logger.error("❌ External CSV processing failed")
+                if 'error' in results:
+                    logger.error(f"Error: {results['error']}")
+                
+                logger.info("💡 Troubleshooting tips:")
+                logger.info("   1. Ensure CSV has a text column (text, review, content, comment)")
+                logger.info("   2. Check file format and encoding")
+                logger.info("   3. Verify file is not empty or corrupted")
+                
+                return 1
+                
+        except Exception as e:
+            logger.error(f"❌ External CSV processing error: {e}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
+    
+    # Standard embedding generation (existing functionality)
     if verbose:
         logger.info("🚀 Advanced Sentiment Analysis Embedding Generation (TRAINING/INFERENCE SUPPORT)")
         logger.info(f"📁 Project root: {PROJECT_ROOT}")
