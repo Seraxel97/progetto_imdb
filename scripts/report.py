@@ -1096,7 +1096,7 @@ def main():
 
     # 🔧 NEW: Auto-detection mode
     if args.auto_default or not any([args.models_dir, args.test_data, args.results_dir]):
-        print("🔍 Auto-detecting latest session...")
+        print("Auto-detecting latest session...")
         
         models_dir, test_data, results_dir = find_session_models_and_data()
         
@@ -1105,17 +1105,17 @@ def main():
             args.test_data = str(test_data)
             args.results_dir = str(results_dir)
             
-            print(f"✅ Auto-detected session:")
+            print("Auto-detected session:")
             print(f"   Models: {models_dir}")
             print(f"   Test data: {test_data}")
             print(f"   Results: {results_dir}")
         else:
-            print("❌ Could not auto-detect session. Please provide paths manually.")
+            print("Could not auto-detect session. Please provide paths manually.")
             return 1
 
     # Verify required arguments
     if not all([args.models_dir, args.test_data, args.results_dir]):
-        print("❌ Missing required arguments. Use --auto-default or provide --models-dir, --test-data, --results-dir")
+        print("Missing required arguments. Use --auto-default or provide --models-dir, --test-data, --results-dir")
         return 1
 
     # Setup logging
