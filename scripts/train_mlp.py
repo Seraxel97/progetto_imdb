@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MLP Training Script - PIPELINE AUTOMATION COMPATIBLE
+MLP Training Script - PIPELINE AUTOMATION COMPATIBLE + FIXED X_embedded.npy SUPPORT
 Trains Multi-Layer Perceptron models for sentiment analysis with full pipeline integration.
 
 🔧 FIXES APPLIED:
@@ -8,10 +8,16 @@ Trains Multi-Layer Perceptron models for sentiment analysis with full pipeline i
 - ✅ Added proper --output-dir parameter instead of only --models-dir
 - ✅ Enhanced auto-mode detection and path discovery
 - ✅ Improved compatibility with pipeline_runner.py subprocess calls
+- ✅ **NEW: Full support for X_embedded.npy format from embed_dataset.py --input-file**
+- ✅ **NEW: Automatic train/val split when using single embedding file**
+- ✅ **NEW: Dual format compatibility (classic X_train.npy + new X_embedded.npy)**
 
 FEATURES:
 - Auto-mode by default when called without arguments
 - Smart path detection for embeddings and output directories
+- **Compatible with both preprocessing formats:**
+  - **Classic**: X_train.npy, y_train.npy, X_val.npy, y_val.npy (from preprocess.py)
+  - **External**: X_embedded.npy, y_labels.npy (from embed_dataset.py --input-file)
 - Full compatibility with report.py, GUI, and pipeline automation
 - Robust model saving with structured output directories
 - Professional logging system with UTF-8 support
@@ -30,6 +36,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import argparse
 import json
@@ -111,7 +118,7 @@ class HateSpeechMLP(nn.Module):
         return self.network(x)
 
 def find_embedding_files(embeddings_dir=None, session_dir=None, logger=None):
-    """Trova i file di embedding in modo intelligente"""
+    """🔧 FIXED: Trova i file di embedding supportando ENTRAMBI i formati"""
     if logger is None:
         logger = logging.getLogger(__name__)
         
@@ -146,30 +153,57 @@ def find_embedding_files(embeddings_dir=None, session_dir=None, logger=None):
         for session_dir in session_dirs[:3]:  # Controlla le 3 sessioni più recenti
             search_paths.append(session_dir / "embeddings")
     
-    required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
+    # 🔧 FIXED: Due formati supportati
+    classic_format_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
+    embedded_format_files = ["X_embedded.npy", "y_labels.npy"]
     
-    logger.info(f"Cercando file di embedding in {len(search_paths)} percorsi...")
+    logger.info(f"🔍 Cercando file di embedding in {len(search_paths)} percorsi...")
+    logger.info(f"📋 Formati supportati:")
+    logger.info(f"   1. Classico: {classic_format_files}")
+    logger.info(f"   2. Embedded: {embedded_format_files}")
     
     for path in search_paths:
-        logger.info(f"Controllo: {path}")
-        if path.exists():
-            missing_files = []
-            for file in required_files:
-                if not (path / file).exists():
-                    missing_files.append(file)
-            
-            if not missing_files:
-                logger.info(f"✅ Tutti i file trovati in: {path}")
-                return path
-            else:
-                logger.info(f"❌ File mancanti in {path}: {missing_files}")
-        else:
+        logger.info(f"📂 Controllo: {path}")
+        if not path.exists():
             logger.info(f"❌ Percorso non esistente: {path}")
+            continue
+        
+        # Controlla formato classico prima
+        missing_classic = []
+        for file in classic_format_files:
+            if not (path / file).exists():
+                missing_classic.append(file)
+        
+        if not missing_classic:
+            logger.info(f"✅ Formato CLASSICO trovato in: {path}")
+            logger.info(f"📊 Files: {classic_format_files}")
+            return path, "classic"
+        
+        # Controlla formato embedded
+        missing_embedded = []
+        for file in embedded_format_files:
+            if not (path / file).exists():
+                missing_embedded.append(file)
+        
+        if not missing_embedded:
+            logger.info(f"✅ Formato EMBEDDED trovato in: {path}")
+            logger.info(f"📊 Files: {embedded_format_files}")
+            return path, "embedded"
+        
+        # Log dei file mancanti
+        logger.info(f"❌ File mancanti in {path}:")
+        logger.info(f"   Classico: {missing_classic}")
+        logger.info(f"   Embedded: {missing_embedded}")
     
     raise FileNotFoundError(
-        f"File di embedding non trovati. Cercati in:\n" + 
+        f"File di embedding non trovati in nessun formato. Cercati in:\n" + 
         "\n".join(f"  - {p}" for p in search_paths) +
-        f"\nFile richiesti: {required_files}"
+        f"\n\n📋 Formati richiesti:\n" +
+        f"  1. Classico: {classic_format_files}\n" +
+        f"  2. Embedded: {embedded_format_files}\n" +
+        f"\n💡 Suggerimenti:\n" +
+        f"  - Per formato classico: python scripts/preprocess.py + python scripts/embed_dataset.py\n" +
+        f"  - Per formato embedded: python scripts/embed_dataset.py --input-file your_file.csv"
     )
 
 def determine_output_dir(output_dir=None, session_dir=None):
@@ -190,18 +224,31 @@ def determine_output_dir(output_dir=None, session_dir=None):
     
     return session_dir
 
-def load_data(embeddings_dir, logger):
-    """Carica i dati di embedding preprocessati"""
-    logger.info("Caricamento dati...")
+def load_data(embeddings_dir, format_type, logger):
+    """🔧 FIXED: Carica i dati supportando ENTRAMBI i formati"""
+    logger.info(f"📥 Caricamento dati in formato {format_type.upper()}...")
     
     embeddings_dir = Path(embeddings_dir)
 
     # Debug: show available files for troubleshooting
     try:
-        logger.info(f"Files in embeddings dir: {os.listdir(embeddings_dir)}")
+        logger.info(f"📁 Files disponibili: {os.listdir(embeddings_dir)}")
     except Exception:
-        logger.warning("Could not list embeddings directory contents")
+        logger.warning("Non riesco a listare i contenuti della directory")
 
+    if format_type == "classic":
+        # 🔧 Formato classico: X_train.npy, y_train.npy, X_val.npy, y_val.npy
+        return load_classic_format(embeddings_dir, logger)
+    elif format_type == "embedded":
+        # 🔧 Formato embedded: X_embedded.npy, y_labels.npy + split automatico
+        return load_embedded_format(embeddings_dir, logger)
+    else:
+        raise ValueError(f"Formato non supportato: {format_type}")
+
+def load_classic_format(embeddings_dir, logger):
+    """Carica formato classico con train/val separati"""
+    logger.info("📊 Caricamento formato CLASSICO (train/val pre-separati)...")
+    
     # Verifica che i file esistano
     required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
     missing_files = []
@@ -211,7 +258,7 @@ def load_data(embeddings_dir, logger):
             missing_files.append(file)
     
     if missing_files:
-        error_msg = f"File mancanti in {embeddings_dir}: {missing_files}"
+        error_msg = f"File classici mancanti in {embeddings_dir}: {missing_files}"
         logger.error(error_msg)
         raise FileNotFoundError(error_msg)
     
@@ -222,14 +269,14 @@ def load_data(embeddings_dir, logger):
         X_val = np.load(embeddings_dir / "X_val.npy")
         y_val = np.load(embeddings_dir / "y_val.npy")
         
-        logger.info(f"Shape X_train: {X_train.shape}")
-        logger.info(f"Shape y_train: {y_train.shape}")
-        logger.info(f"Shape X_val: {X_val.shape}")
-        logger.info(f"Shape y_val: {y_val.shape}")
+        logger.info(f"📊 Shape X_train: {X_train.shape}")
+        logger.info(f"📊 Shape y_train: {y_train.shape}")
+        logger.info(f"📊 Shape X_val: {X_val.shape}")
+        logger.info(f"📊 Shape y_val: {y_val.shape}")
         
         # Verifica delle etichette
-        logger.info(f"Etichette uniche train: {np.unique(y_train)}")
-        logger.info(f"Etichette uniche val: {np.unique(y_val)}")
+        logger.info(f"🏷️ Etichette uniche train: {np.unique(y_train)}")
+        logger.info(f"🏷️ Etichette uniche val: {np.unique(y_val)}")
         
         # Verifica dimensioni attese
         if X_train.shape[1] != 384:
@@ -244,11 +291,80 @@ def load_data(embeddings_dir, logger):
         X_val_tensor = torch.FloatTensor(X_val)
         y_val_tensor = torch.FloatTensor(y_val).unsqueeze(1)
         
-        logger.info("Dati caricati con successo")
+        logger.info("✅ Dati formato classico caricati con successo")
         return X_train_tensor, y_train_tensor, X_val_tensor, y_val_tensor
         
     except Exception as e:
-        logger.error(f"Errore nel caricamento dei dati: {str(e)}")
+        logger.error(f"❌ Errore nel caricamento formato classico: {str(e)}")
+        raise
+
+def load_embedded_format(embeddings_dir, logger):
+    """🔧 NEW: Carica formato embedded con split automatico"""
+    logger.info("🆕 Caricamento formato EMBEDDED (split automatico)...")
+    
+    # Verifica che i file esistano
+    required_files = ["X_embedded.npy", "y_labels.npy"]
+    missing_files = []
+    
+    for file in required_files:
+        if not (embeddings_dir / file).exists():
+            missing_files.append(file)
+    
+    if missing_files:
+        error_msg = f"File embedded mancanti in {embeddings_dir}: {missing_files}"
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
+    
+    try:
+        # Carica i file embedded
+        X_embedded = np.load(embeddings_dir / "X_embedded.npy")
+        y_labels = np.load(embeddings_dir / "y_labels.npy")
+        
+        logger.info(f"📊 Shape X_embedded: {X_embedded.shape}")
+        logger.info(f"📊 Shape y_labels: {y_labels.shape}")
+        
+        # Verifica delle etichette
+        unique_labels = np.unique(y_labels)
+        logger.info(f"🏷️ Etichette uniche embedded: {unique_labels}")
+        
+        # Verifica dimensioni attese
+        if X_embedded.shape[1] != 384:
+            raise ValueError(f"Dimensione embedding attesa: 384, trovata: {X_embedded.shape[1]}")
+        
+        if not set(unique_labels).issubset({0, 1}):
+            raise ValueError(f"Etichette non binarie trovate: {unique_labels}")
+        
+        # 🔧 Split automatico train/val (80/20)
+        logger.info("🔄 Eseguendo split automatico train/val (80/20)...")
+        
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_embedded, y_labels,
+            test_size=0.2,
+            random_state=42,
+            stratify=y_labels
+        )
+        
+        logger.info(f"📊 Dopo split automatico:")
+        logger.info(f"   Train: {X_train.shape[0]} samples ({X_train.shape[0]/X_embedded.shape[0]*100:.1f}%)")
+        logger.info(f"   Val: {X_val.shape[0]} samples ({X_val.shape[0]/X_embedded.shape[0]*100:.1f}%)")
+        
+        # Verifica distribuzione delle classi dopo split
+        train_dist = np.unique(y_train, return_counts=True)
+        val_dist = np.unique(y_val, return_counts=True)
+        logger.info(f"🏷️ Distribuzione train: {dict(zip(train_dist[0], train_dist[1]))}")
+        logger.info(f"🏷️ Distribuzione val: {dict(zip(val_dist[0], val_dist[1]))}")
+        
+        # Converti in tensori PyTorch
+        X_train_tensor = torch.FloatTensor(X_train)
+        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1)
+        X_val_tensor = torch.FloatTensor(X_val)
+        y_val_tensor = torch.FloatTensor(y_val).unsqueeze(1)
+        
+        logger.info("✅ Dati formato embedded caricati e splittati con successo")
+        return X_train_tensor, y_train_tensor, X_val_tensor, y_val_tensor
+        
+    except Exception as e:
+        logger.error(f"❌ Errore nel caricamento formato embedded: {str(e)}")
         raise
 
 def create_data_loaders(X_train, y_train, X_val, y_val, batch_size=32):
@@ -319,7 +435,7 @@ def validate_epoch(model, val_loader, criterion, device):
     accuracy = correct / total
     return avg_loss, accuracy, all_predictions, all_targets
 
-def save_metrics_and_plots(history, final_predictions, final_targets, output_dir, logger):
+def save_metrics_and_plots(history, final_predictions, final_targets, output_dir, format_type, logger):
     """Salva metriche e grafici"""
     output_dir = Path(output_dir)
     
@@ -336,6 +452,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         
         # 1. Salva metriche in JSON
         metrics_data = {
+            'format_type': format_type,  # 🔧 NEW: specifica il formato usato
             'training_history': {
                 'train_losses': history['train_losses'],
                 'train_accuracies': history['train_accuracies'],
@@ -353,7 +470,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         metrics_file = reports_dir / "mlp_metrics.json"
         with open(metrics_file, 'w') as f:
             json.dump(metrics_data, f, indent=2)
-        logger.info(f"Metriche salvate in: {metrics_file}")
+        logger.info(f"📄 Metriche salvate in: {metrics_file}")
         
         # 2. Classification report
         class_report = classification_report(
@@ -371,6 +488,8 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         with open(class_report_txt, 'w') as f:
             f.write("MLP Classification Report\n")
             f.write("=" * 50 + "\n\n")
+            f.write(f"Data Format Used: {format_type.upper()}\n")  # 🔧 NEW
+            f.write("=" * 50 + "\n\n")
             f.write(classification_report(
                 final_targets, final_predictions,
                 target_names=['Negative', 'Positive']
@@ -382,7 +501,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         # Salva confusion matrix come immagine
         plt.figure(figsize=(8, 6))
         plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-        plt.title('MLP Confusion Matrix')
+        plt.title(f'MLP Confusion Matrix\nFormat: {format_type.upper()}')  # 🔧 NEW
         plt.colorbar()
         tick_marks = np.arange(2)
         plt.xticks(tick_marks, ['Negative', 'Positive'])
@@ -409,7 +528,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         # Loss
         ax1.plot(history['train_losses'], label='Train Loss', color='blue')
         ax1.plot(history['val_losses'], label='Val Loss', color='red')
-        ax1.set_title('MLP Model Loss')
+        ax1.set_title(f'MLP Model Loss\nFormat: {format_type.upper()}')  # 🔧 NEW
         ax1.set_xlabel('Epoch')
         ax1.set_ylabel('Loss')
         ax1.legend()
@@ -418,7 +537,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         # Accuracy
         ax2.plot(history['train_accuracies'], label='Train Accuracy', color='blue')
         ax2.plot(history['val_accuracies'], label='Val Accuracy', color='red')
-        ax2.set_title('MLP Model Accuracy')
+        ax2.set_title(f'MLP Model Accuracy\nFormat: {format_type.upper()}')  # 🔧 NEW
         ax2.set_xlabel('Epoch')
         ax2.set_ylabel('Accuracy')
         ax2.legend()
@@ -437,6 +556,9 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
             f.write("MLP Training Summary\n")
             f.write("=" * 50 + "\n")
             f.write(f"Training completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Data format used: {format_type.upper()}\n")  # 🔧 NEW
+            if format_type == "embedded":
+                f.write("Automatic train/val split: 80/20\n")  # 🔧 NEW
             f.write(f"Total epochs: {len(history['train_losses'])}\n")
             f.write(f"Final train accuracy: {history['train_accuracies'][-1]:.4f}\n")
             f.write(f"Final validation accuracy: {history['val_accuracies'][-1]:.4f}\n")
@@ -452,6 +574,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
             'status': 'completed',
             'timestamp': datetime.now().isoformat(),
             'model_type': 'MLP',
+            'format_type': format_type,  # 🔧 NEW
             'performance': {
                 'accuracy': float(accuracy_score(final_targets, final_predictions)),
                 'final_val_accuracy': float(history['val_accuracies'][-1]),
@@ -471,7 +594,7 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         with open(gui_status_file, 'w') as f:
             json.dump(gui_status, f, indent=2)
         
-        logger.info(f"Grafici e report salvati in: {output_dir}")
+        logger.info(f"📊 Grafici e report salvati in: {output_dir}")
         
         return {
             'metrics_file': str(metrics_file),
@@ -483,46 +606,54 @@ def save_metrics_and_plots(history, final_predictions, final_targets, output_dir
         }
         
     except Exception as e:
-        logger.error(f"Errore nel salvataggio di metriche e grafici: {str(e)}")
+        logger.error(f"❌ Errore nel salvataggio di metriche e grafici: {str(e)}")
         raise
 
 def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batch_size=32, logger=None, session_dir=None):
-    """Funzione principale di training con parametri flessibili"""
+    """🔧 FIXED: Funzione principale di training con supporto dual-format"""
     if logger is None:
         # Setup logging temporaneo se non fornito
         temp_log_dir = Path("logs") if not output_dir else Path(output_dir) / "logs"
         logger = setup_logging(temp_log_dir)
     
     try:
-        # Determina percorsi in modo intelligente
+        # 🔧 FIXED: Determina percorsi e formato in modo intelligente
         if not embeddings_dir:
-            embeddings_dir = find_embedding_files(session_dir=session_dir, logger=logger)
+            embeddings_dir, format_type = find_embedding_files(session_dir=session_dir, logger=logger)
         else:
             # Verifica che il percorso specificato sia valido
-            embeddings_dir = find_embedding_files(embeddings_dir=embeddings_dir, logger=logger)
+            embeddings_dir, format_type = find_embedding_files(embeddings_dir=embeddings_dir, logger=logger)
         
         if not output_dir:
             output_dir = determine_output_dir(session_dir=session_dir)
 
-        train_path = Path(embeddings_dir) / "X_train.npy"
-        val_path = Path(embeddings_dir) / "X_val.npy"
-        if not train_path.exists() or not val_path.exists():
-            raise ValueError("Training data not found. Ensure preprocessing created valid train/val files.")
-        
+        # 🔧 NEW: Verifica formato-specifica
+        if format_type == "classic":
+            train_path = Path(embeddings_dir) / "X_train.npy"
+            val_path = Path(embeddings_dir) / "X_val.npy"
+            if not train_path.exists() or not val_path.exists():
+                raise ValueError("Training data not found for classic format.")
+        elif format_type == "embedded":
+            embedded_path = Path(embeddings_dir) / "X_embedded.npy"
+            labels_path = Path(embeddings_dir) / "y_labels.npy"
+            if not embedded_path.exists() or not labels_path.exists():
+                raise ValueError("Training data not found for embedded format.")
+
         output_dir = Path(output_dir)
         models_dir = output_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"Usando device: {device}")
-        logger.info(f"Directory embeddings: {embeddings_dir}")
-        logger.info(f"Directory output: {output_dir}")
-        logger.info(f"Parametri training: epochs={epochs}, lr={lr}, batch_size={batch_size}")
+        logger.info(f"🔧 Usando device: {device}")
+        logger.info(f"📁 Directory embeddings: {embeddings_dir}")
+        logger.info(f"📊 Formato dati: {format_type.upper()}")
+        logger.info(f"📁 Directory output: {output_dir}")
+        logger.info(f"⚙️ Parametri training: epochs={epochs}, lr={lr}, batch_size={batch_size}")
         
         # Hyperparameters
         PATIENCE = 10
         
-        # Carica i dati
-        X_train, y_train, X_val, y_val = load_data(embeddings_dir, logger)
+        # 🔧 FIXED: Carica i dati con formato appropriato
+        X_train, y_train, X_val, y_val = load_data(embeddings_dir, format_type, logger)
         
         # Crea data loaders
         train_loader, val_loader = create_data_loaders(X_train, y_train, X_val, y_val, batch_size)
@@ -530,9 +661,9 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
         # Crea il modello
         model = HateSpeechMLP(input_dim=384).to(device)
         
-        logger.info("Architettura del modello:")
+        logger.info("🧠 Architettura del modello:")
         logger.info(str(model))
-        logger.info(f"Parametri totali: {sum(p.numel() for p in model.parameters()):,}")
+        logger.info(f"📊 Parametri totali: {sum(p.numel() for p in model.parameters()):,}")
         
         # Loss e optimizer
         criterion = nn.BCELoss()
@@ -550,10 +681,10 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
         best_val_loss = float('inf')
         patience_counter = 0
         
-        logger.info("Inizio training...")
+        logger.info("🚀 Inizio training...")
         
         for epoch in range(epochs):
-            logger.info(f"Epoch {epoch+1}/{epochs}")
+            logger.info(f"📅 Epoch {epoch+1}/{epochs}")
             
             # Training
             train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
@@ -566,7 +697,7 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
             scheduler.step(val_loss)
             new_lr = optimizer.param_groups[0]['lr']
             if new_lr != old_lr:
-                logger.info(f"Learning rate aggiornato da {old_lr:.6f} a {new_lr:.6f}")
+                logger.info(f"📈 Learning rate aggiornato da {old_lr:.6f} a {new_lr:.6f}")
             
             # Salva metriche
             train_losses.append(train_loss)
@@ -574,8 +705,8 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
             
-            logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
-            logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+            logger.info(f"📊 Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+            logger.info(f"📊 Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
             
             # Early stopping
             if val_loss < best_val_loss:
@@ -584,31 +715,31 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
                 # Salva il miglior modello
                 model_path = models_dir / "mlp_model.pth"
                 torch.save(model.state_dict(), model_path)
-                logger.info(f"Nuovo miglior modello salvato (val_loss: {val_loss:.4f})")
+                logger.info(f"✅ Nuovo miglior modello salvato (val_loss: {val_loss:.4f})")
             else:
                 patience_counter += 1
                 
             if patience_counter >= PATIENCE:
-                logger.info(f"Early stopping alla epoch {epoch+1}")
+                logger.info(f"⏹️ Early stopping alla epoch {epoch+1}")
                 break
         
         # Carica il miglior modello
         model.load_state_dict(torch.load(models_dir / "mlp_model.pth"))
         
         # Valutazione finale
-        logger.info("Valutazione finale...")
+        logger.info("📊 Valutazione finale...")
         final_val_loss, final_val_acc, final_predictions, final_targets = validate_epoch(
             model, val_loader, criterion, device
         )
         
-        logger.info(f"Final Val Loss: {final_val_loss:.4f}")
-        logger.info(f"Final Val Accuracy: {final_val_acc:.4f}")
+        logger.info(f"📊 Final Val Loss: {final_val_loss:.4f}")
+        logger.info(f"📊 Final Val Accuracy: {final_val_acc:.4f}")
         
         # Converti predizioni per metriche
         final_predictions = np.array(final_predictions).flatten()
         final_targets = np.array(final_targets).flatten()
         
-        logger.info("Classification Report:")
+        logger.info("📋 Classification Report:")
         logger.info("\n" + classification_report(final_targets, final_predictions, target_names=['Negative', 'Positive']))
         
         # Salva modello completo per backup
@@ -620,6 +751,7 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
             'input_dim': 384,
             'hidden_dims': [512, 256, 128, 64],
             'dropout': 0.3,
+            'format_type': format_type,  # 🔧 NEW
             'training_params': {
                 'epochs': len(train_losses),
                 'learning_rate': lr,
@@ -641,7 +773,7 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        logger.info(f"Modello e metadati salvati in: {models_dir}")
+        logger.info(f"💾 Modello e metadati salvati in: {models_dir}")
         
         # Prepara history per salvataggio
         history = {
@@ -651,10 +783,10 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
             'val_accuracies': val_accuracies
         }
         
-        # Salva metriche e grafici
-        saved_files = save_metrics_and_plots(history, final_predictions, final_targets, output_dir, logger)
+        # 🔧 FIXED: Salva metriche e grafici con informazioni sul formato
+        saved_files = save_metrics_and_plots(history, final_predictions, final_targets, output_dir, format_type, logger)
         
-        logger.info("Training completato con successo!")
+        logger.info("🎉 Training completato con successo!")
         
         return {
             'model_path': str(models_dir / "mlp_model.pth"),
@@ -662,11 +794,12 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
             'performance': metadata['performance'],
             'saved_files': saved_files,
             'output_dir': str(output_dir),
-            'embeddings_dir': str(embeddings_dir)
+            'embeddings_dir': str(embeddings_dir),
+            'format_type': format_type  # 🔧 NEW
         }
         
     except Exception as e:
-        logger.error(f"Errore durante il training: {str(e)}")
+        logger.error(f"❌ Errore durante il training: {str(e)}")
         # Salva status di errore per la GUI
         if output_dir:
             error_status = {
@@ -714,11 +847,11 @@ def predict_text_embedding(model, embedding):
 
 def parse_arguments():
     """🔧 FIXED: Parse command line arguments with corrected parameter names"""
-    parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis - PIPELINE COMPATIBLE')
+    parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis - DUAL FORMAT COMPATIBLE')
     
     # 🔧 FIXED: Corrected parameter names to match pipeline expectations
     parser.add_argument('--embeddings-dir', type=str, default=None,
-                       help='Directory containing embedding files (.npy). If not specified, will search automatically.')
+                       help='Directory containing embedding files (.npy). Supports both classic and embedded formats. If not specified, will search automatically.')
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Directory to save model, plots, and metrics. If not specified, will create session directory.')
     parser.add_argument('--session-dir', type=str, default=None,
@@ -762,11 +895,11 @@ def run_training_auto_mode(session_dir=None, **kwargs):
         'session_dir': session_dir
     }
     
-    logger.info(f"Parametri auto mode: {default_params}")
+    logger.info(f"⚙️ Parametri auto mode: {default_params}")
     
     try:
         result = train_model(logger=logger, **default_params)
-        logger.info("✅ Training automatico completato!")
+        logger.info(f"✅ Training automatico completato! Formato: {result['format_type'].upper()}")
         return result
     except Exception as e:
         logger.error(f"❌ Errore in modalità automatica: {str(e)}")
@@ -824,16 +957,17 @@ def main():
             logger.warning("⚠️ Using default output directory: results")
     
     logger.info("=" * 60)
-    logger.info("MLP TRAINING STARTED")
+    logger.info("MLP TRAINING STARTED - DUAL FORMAT SUPPORT")
     logger.info("=" * 60)
-    logger.info(f"Embeddings dir: {args.embeddings_dir or 'Auto-detect'}")
-    logger.info(f"Output dir: {args.output_dir or 'Auto-create'}")
-    logger.info(f"Session dir: {args.session_dir or 'None'}")
-    logger.info(f"Epochs: {args.epochs}")
-    logger.info(f"Learning rate: {args.lr}")
-    logger.info(f"Batch size: {args.batch_size}")
-    logger.info(f"Fast mode: {args.fast}")
-    logger.info(f"Device: {device}")
+    logger.info(f"📁 Embeddings dir: {args.embeddings_dir or 'Auto-detect'}")
+    logger.info(f"📁 Output dir: {args.output_dir or 'Auto-create'}")
+    logger.info(f"📁 Session dir: {args.session_dir or 'None'}")
+    logger.info(f"⚙️ Epochs: {args.epochs}")
+    logger.info(f"⚙️ Learning rate: {args.lr}")
+    logger.info(f"⚙️ Batch size: {args.batch_size}")
+    logger.info(f"⚡ Fast mode: {args.fast}")
+    logger.info(f"🔧 Device: {device}")
+    logger.info("📋 Formati supportati: Classic (X_train.npy) + Embedded (X_embedded.npy)")
     
     try:
         # Avvia il training
@@ -850,15 +984,16 @@ def main():
         logger.info("=" * 60)
         logger.info("TRAINING COMPLETATO CON SUCCESSO!")
         logger.info("=" * 60)
-        logger.info(f"Modello salvato: {result['model_path']}")
-        logger.info(f"Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
-        logger.info(f"Output directory: {result['output_dir']}")
-        logger.info(f"Files salvati: {list(result['saved_files'].keys())}")
+        logger.info(f"📊 Formato usato: {result['format_type'].upper()}")
+        logger.info(f"💾 Modello salvato: {result['model_path']}")
+        logger.info(f"📊 Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
+        logger.info(f"📁 Output directory: {result['output_dir']}")
+        logger.info(f"📄 Files salvati: {list(result['saved_files'].keys())}")
         
         return result
         
     except Exception as e:
-        logger.error(f"Errore durante l'esecuzione: {str(e)}")
+        logger.error(f"❌ Errore durante l'esecuzione: {str(e)}")
         raise
 
 if __name__ == "__main__":
@@ -866,11 +1001,12 @@ if __name__ == "__main__":
         # Controlla se è chiamato senza argomenti (modalità legacy)
         if len(sys.argv) == 1:
             print("🚀 Avvio MLP training in modalità automatica...")
-            print(f"Working directory: {os.getcwd()}")
-            print(f"Script location: {__file__}")
+            print(f"📁 Working directory: {os.getcwd()}")
+            print(f"📁 Script location: {__file__}")
             
             result = run_training_auto_mode()
-            print(f"\n✅ Training completato! Modello salvato in: {result['model_path']}")
+            print(f"\n✅ Training completato! Formato: {result['format_type'].upper()}")
+            print(f"💾 Modello salvato in: {result['model_path']}")
             print(f"📊 Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
         else:
             # Usa il parser per CLI
