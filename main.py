@@ -1,8 +1,16 @@
-c#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
-Main Entry Point - Sentiment Analysis System - ENHANCED VERSION
+Main Entry Point - Sentiment Analysis System - ENHANCED VERSION WITH PIPELINE CLI
 Simple entry point that launches the Streamlit GUI dashboard with enhanced dependency checking
 and better error handling for improved user experience.
+
+🆕 NEW FEATURES:
+- ✅ Added --run-pipeline option for complete CLI automation
+- ✅ Pipeline execution with real-time progress tracking
+- ✅ Automatic session directory creation and management
+- ✅ Comprehensive error handling and recovery
+- ✅ Results summary and file organization
+- ✅ Compatible with existing GUI and automation features
 
 🔧 ENHANCEMENTS:
 - ✅ Enhanced dependency checking with detailed reporting
@@ -11,14 +19,32 @@ and better error handling for improved user experience.
 - ✅ Improved user feedback and status reporting
 - ✅ Graceful handling of missing dependencies
 - ✅ Environment validation and setup assistance
+
+USAGE:
+    # Launch GUI (default)
+    python main.py
+    
+    # 🆕 NEW: Run complete pipeline from CLI
+    python main.py --run-pipeline --input dataset.csv
+    python main.py --run-pipeline --input data/raw/imdb_raw.csv --fast-mode
+    python main.py --run-pipeline --input my_data.csv --session-name "my_analysis"
+    
+    # Other CLI options
+    python main.py --check
+    python main.py --validate
+    python main.py --setup
 """
 
 import os
 import sys
 import subprocess
 import logging
+import argparse
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
+from datetime import datetime
+import time
+import json
 
 def setup_logging():
     """Setup basic logging for the main entry point"""
@@ -381,48 +407,6 @@ def launch_streamlit_app(gui_path: Path, project_root: Path) -> int:
         logger.error(f"❌ Error launching dashboard: {e}")
         return 1
 
-def show_help():
-    """Show enhanced help information"""
-    print("🤖 Sentiment Analysis System - Enhanced Version")
-    print("=" * 50)
-    print()
-    print("📊 USAGE:")
-    print("   python main.py              # Launch GUI dashboard")
-    print("   python main.py --help       # Show this help")
-    print("   python main.py --check      # Check dependencies")
-    print("   python main.py --validate   # Validate environment")
-    print("   python main.py --setup      # Setup environment")
-    print()
-    print("🎯 FEATURES:")
-    print("   • Interactive sentiment analysis GUI")
-    print("   • CSV file batch processing") 
-    print("   • Complete model training pipeline")
-    print("   • Performance evaluation and reporting")
-    print("   • Real-time analysis and logging")
-    print("   • Enhanced error handling and recovery")
-    print()
-    print("📁 PROJECT STRUCTURE:")
-    print("   main.py                     # This entry point")
-    print("   gui_data_dashboard.py       # Streamlit GUI")
-    print("   config.yaml                 # Configuration")
-    print("   requirements.txt            # Dependencies")
-    print("   scripts/                    # Analysis scripts")
-    print("   data/                       # Dataset storage")
-    print("   results/                    # Output and models")
-    print()
-    print("🚀 QUICK START:")
-    print("   1. Install dependencies: pip install -r requirements.txt")
-    print("   2. Run: python main.py")
-    print("   3. Open browser (auto-opens)")
-    print("   4. Upload dataset or analyze text")
-    print("   5. Train models or use existing ones")
-    print()
-    print("🛠️ TROUBLESHOOTING:")
-    print("   • Run --check to verify dependencies")
-    print("   • Run --validate to check environment")
-    print("   • Check logs/ directory for detailed logs")
-    print("   • Ensure all files in requirements.txt are installed")
-
 def setup_environment(project_root: Path) -> bool:
     """Interactive environment setup"""
     logger = logging.getLogger(__name__)
@@ -463,70 +447,443 @@ def setup_environment(project_root: Path) -> bool:
         print("\n⏹️ Setup cancelled by user")
         return False
 
+# 🆕 NEW: Complete Pipeline Execution Functions
+def create_session_directory(project_root: Path, session_name: Optional[str] = None) -> Path:
+    """Create a timestamped session directory for pipeline execution"""
+    results_dir = project_root / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    if session_name:
+        session_dir = results_dir / f"session_{session_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    else:
+        session_dir = results_dir / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    session_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create subdirectories
+    subdirs = ['processed', 'embeddings', 'models', 'plots', 'reports', 'logs']
+    for subdir in subdirs:
+        (session_dir / subdir).mkdir(exist_ok=True)
+    
+    return session_dir
+
+def run_script_step(script_name: str, args: List[str], project_root: Path, 
+                   session_dir: Path, logger) -> Tuple[bool, str, str, float]:
+    """Execute a single pipeline script step with enhanced error handling"""
+    script_path = project_root / "scripts" / script_name
+    
+    if not script_path.exists():
+        return False, "", f"Script not found: {script_path}", 0.0
+    
+    cmd = [sys.executable, str(script_path)] + args
+    
+    logger.info(f"🔄 Executing: {script_name}")
+    logger.info(f"   Command: {' '.join(cmd)}")
+    logger.info(f"   Working directory: {project_root}")
+    
+    start_time = time.time()
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=1800,  # 30 minutes timeout
+            cwd=project_root
+        )
+        
+        duration = time.time() - start_time
+        
+        if result.returncode == 0:
+            logger.info(f"✅ {script_name} completed successfully in {duration:.2f}s")
+            return True, result.stdout, result.stderr, duration
+        else:
+            logger.error(f"❌ {script_name} failed with return code {result.returncode}")
+            logger.error(f"   STDERR: {result.stderr[:500]}...")
+            return False, result.stdout, result.stderr, duration
+            
+    except subprocess.TimeoutExpired:
+        duration = time.time() - start_time
+        error_msg = f"{script_name} timed out after 30 minutes"
+        logger.error(f"⏰ {error_msg}")
+        return False, "", error_msg, duration
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        error_msg = f"Error executing {script_name}: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        return False, "", error_msg, duration
+
+def run_complete_pipeline(input_file: str, project_root: Path, session_name: Optional[str] = None,
+                         fast_mode: bool = False, logger=None) -> Dict:
+    """🆕 NEW: Execute the complete sentiment analysis pipeline from CLI"""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    logger.info("🚀 STARTING COMPLETE SENTIMENT ANALYSIS PIPELINE")
+    logger.info("=" * 60)
+    
+    # Validate input file
+    input_path = Path(input_file)
+    if not input_path.exists():
+        error_msg = f"Input file not found: {input_file}"
+        logger.error(f"❌ {error_msg}")
+        return {
+            'success': False,
+            'error': error_msg,
+            'input_file': input_file
+        }
+    
+    # Create session directory
+    try:
+        session_dir = create_session_directory(project_root, session_name)
+        logger.info(f"📁 Session directory created: {session_dir}")
+    except Exception as e:
+        error_msg = f"Failed to create session directory: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        return {
+            'success': False,
+            'error': error_msg
+        }
+    
+    # Initialize results tracking
+    pipeline_start_time = time.time()
+    results = {
+        'success': False,
+        'input_file': str(input_path),
+        'session_directory': str(session_dir),
+        'session_name': session_name,
+        'fast_mode': fast_mode,
+        'start_time': datetime.now().isoformat(),
+        'steps': {},
+        'total_duration': 0.0,
+        'errors': []
+    }
+    
+    # Setup logging for this session
+    log_file = session_dir / "logs" / "pipeline.log"
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+    
+    # Define pipeline steps
+    pipeline_steps = [
+        {
+            'name': 'preprocessing',
+            'script': 'preprocess.py',
+            'args': [
+                '--input', str(input_path),
+                '--output-dir', str(session_dir / 'processed')
+            ],
+            'description': 'Data preprocessing and train/val/test split'
+        },
+        {
+            'name': 'embedding',
+            'script': 'embed_dataset.py',
+            'args': [
+                '--input-dir', str(session_dir / 'processed'),
+                '--output-dir', str(session_dir / 'embeddings')
+            ],
+            'description': 'Generate sentence embeddings using MiniLM'
+        },
+        {
+            'name': 'train_mlp',
+            'script': 'train_mlp.py',
+            'args': [
+                '--embeddings-dir', str(session_dir / 'embeddings'),
+                '--output-dir', str(session_dir),
+                '--epochs', '50' if fast_mode else '100'
+            ] + (['--fast'] if fast_mode else []),
+            'description': 'Train Multi-Layer Perceptron model'
+        },
+        {
+            'name': 'train_svm',
+            'script': 'train_svm.py',
+            'args': [
+                '--embeddings-dir', str(session_dir / 'embeddings'),
+                '--output-dir', str(session_dir),
+                '--session-name', session_name or 'pipeline'
+            ] + (['--fast'] if fast_mode else []),
+            'description': 'Train Support Vector Machine model'
+        },
+        {
+            'name': 'report',
+            'script': 'report.py',
+            'args': [
+                '--models-dir', str(session_dir / 'models'),
+                '--test-data', str(session_dir / 'processed' / 'test.csv'),
+                '--results-dir', str(session_dir),
+                '--auto-default'
+            ],
+            'description': 'Generate comprehensive evaluation report'
+        }
+    ]
+    
+    # Execute pipeline steps
+    total_steps = len(pipeline_steps)
+    
+    for i, step in enumerate(pipeline_steps, 1):
+        step_name = step['name']
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"STEP {i}/{total_steps}: {step['description']}")
+        logger.info(f"{'='*60}")
+        
+        # Execute step
+        success, stdout, stderr, duration = run_script_step(
+            step['script'], 
+            step['args'], 
+            project_root, 
+            session_dir, 
+            logger
+        )
+        
+        # Record step results
+        results['steps'][step_name] = {
+            'success': success,
+            'duration': duration,
+            'description': step['description'],
+            'script': step['script'],
+            'args': step['args'],
+            'stdout_length': len(stdout),
+            'stderr_length': len(stderr)
+        }
+        
+        if not success:
+            error_msg = f"Step {step_name} failed: {stderr[:200]}..."
+            results['errors'].append(error_msg)
+            logger.error(f"❌ Pipeline stopped at step: {step_name}")
+            
+            # Continue with remaining steps anyway (partial results)
+            logger.info("⚠️ Continuing with remaining steps to get partial results...")
+            continue
+        else:
+            logger.info(f"✅ Step {step_name} completed successfully")
+    
+    # Calculate total duration and final status
+    results['total_duration'] = time.time() - pipeline_start_time
+    results['end_time'] = datetime.now().isoformat()
+    
+    # Determine overall success
+    successful_steps = sum(1 for step in results['steps'].values() if step['success'])
+    total_steps = len(results['steps'])
+    
+    if successful_steps == total_steps:
+        results['success'] = True
+        results['status'] = 'complete'
+    elif successful_steps > 0:
+        results['success'] = True
+        results['status'] = 'partial'
+    else:
+        results['success'] = False
+        results['status'] = 'failed'
+    
+    # Create pipeline summary
+    summary_file = session_dir / "pipeline_summary.json"
+    try:
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        results['summary_file'] = str(summary_file)
+    except Exception as e:
+        logger.warning(f"Failed to save summary file: {e}")
+    
+    # Log final results
+    logger.info(f"\n{'='*60}")
+    logger.info("PIPELINE EXECUTION COMPLETED")
+    logger.info(f"{'='*60}")
+    logger.info(f"Status: {results['status'].upper()}")
+    logger.info(f"Successful steps: {successful_steps}/{total_steps}")
+    logger.info(f"Total duration: {results['total_duration']:.1f} seconds")
+    logger.info(f"Session directory: {session_dir}")
+    
+    if results['errors']:
+        logger.warning(f"Errors encountered: {len(results['errors'])}")
+        for error in results['errors']:
+            logger.warning(f"  • {error}")
+    
+    # Show step summary
+    logger.info("\nStep Summary:")
+    for step_name, step_info in results['steps'].items():
+        status = "✅" if step_info['success'] else "❌"
+        logger.info(f"  {status} {step_name}: {step_info['duration']:.1f}s")
+    
+    # Collect output files
+    try:
+        output_files = []
+        for root, dirs, files in os.walk(session_dir):
+            for file in files:
+                if file.endswith(('.png', '.pdf', '.json', '.csv', '.txt', '.pkl', '.pth')):
+                    rel_path = Path(root).relative_to(session_dir) / file
+                    output_files.append(str(rel_path))
+        
+        results['output_files'] = sorted(output_files)
+        logger.info(f"\nGenerated {len(output_files)} output files:")
+        for file_path in output_files[:10]:  # Show first 10
+            logger.info(f"  📄 {file_path}")
+        if len(output_files) > 10:
+            logger.info(f"  ... and {len(output_files) - 10} more files")
+            
+    except Exception as e:
+        logger.warning(f"Failed to collect output files: {e}")
+    
+    # Remove file handler
+    logger.removeHandler(file_handler)
+    file_handler.close()
+    
+    return results
+
+def show_help():
+    """Show enhanced help information"""
+    print("🤖 Sentiment Analysis System - Enhanced Version with Pipeline CLI")
+    print("=" * 70)
+    print()
+    print("📊 USAGE:")
+    print("   python main.py                        # Launch GUI dashboard")
+    print("   python main.py --help                 # Show this help")
+    print("   python main.py --check                # Check dependencies")
+    print("   python main.py --validate             # Validate environment")
+    print("   python main.py --setup                # Setup environment")
+    print()
+    print("🆕 NEW: COMPLETE PIPELINE EXECUTION:")
+    print("   python main.py --run-pipeline --input dataset.csv")
+    print("   python main.py --run-pipeline --input data/raw/imdb_raw.csv --fast-mode")
+    print("   python main.py --run-pipeline --input my_data.csv --session-name 'my_analysis'")
+    print()
+    print("🎯 FEATURES:")
+    print("   • Interactive sentiment analysis GUI")
+    print("   • 🆕 Complete CLI pipeline automation")
+    print("   • CSV file batch processing") 
+    print("   • Complete model training pipeline")
+    print("   • Performance evaluation and reporting")
+    print("   • Real-time analysis and logging")
+    print("   • Enhanced error handling and recovery")
+    print()
+    print("📁 PROJECT STRUCTURE:")
+    print("   main.py                     # This entry point")
+    print("   gui_data_dashboard.py       # Streamlit GUI")
+    print("   config.yaml                 # Configuration")
+    print("   requirements.txt            # Dependencies")
+    print("   scripts/                    # Analysis scripts")
+    print("   ├── preprocess.py           # Data preprocessing")
+    print("   ├── embed_dataset.py        # Embedding generation")
+    print("   ├── train_mlp.py            # MLP training")
+    print("   ├── train_svm.py            # SVM training")
+    print("   └── report.py               # Report generation")
+    print("   data/                       # Dataset storage")
+    print("   results/                    # Output and models")
+    print()
+    print("🚀 QUICK START:")
+    print("   1. Install dependencies: pip install -r requirements.txt")
+    print("   2. GUI mode: python main.py")
+    print("   3. 🆕 Pipeline mode: python main.py --run-pipeline --input your_data.csv")
+    print("   4. View results in results/session_<timestamp>/")
+    print()
+    print("🛠️ PIPELINE DETAILS:")
+    print("   The --run-pipeline option executes these steps in sequence:")
+    print("   1. 📊 Data preprocessing (preprocess.py)")
+    print("   2. 🧠 Embedding generation (embed_dataset.py)")
+    print("   3. 🤖 MLP model training (train_mlp.py)")
+    print("   4. ⚡ SVM model training (train_svm.py)")
+    print("   5. 📋 Report generation (report.py)")
+    print()
+    print("📊 PIPELINE OPTIONS:")
+    print("   --input FILE              Input CSV file (required)")
+    print("   --session-name NAME       Custom session name")
+    print("   --fast-mode               Use fast training modes")
+    print()
+    print("🛠️ TROUBLESHOOTING:")
+    print("   • Run --check to verify dependencies")
+    print("   • Run --validate to check environment")
+    print("   • Check results/session_*/logs/ for detailed logs")
+    print("   • Ensure all files in requirements.txt are installed")
+
 def main():
-    """Enhanced main function with comprehensive error handling"""
+    """Enhanced main function with comprehensive error handling and pipeline CLI"""
     
     # Setup logging
     logger = setup_logging()
     
+    # Parse arguments with enhanced options
+    parser = argparse.ArgumentParser(
+        description="Sentiment Analysis System - Enhanced with Pipeline CLI",
+        add_help=False  # We'll handle help ourselves
+    )
+    
+    # Action arguments
+    parser.add_argument("--help", "-h", action="store_true", help="Show help")
+    parser.add_argument("--check", action="store_true", help="Check dependencies")
+    parser.add_argument("--validate", action="store_true", help="Validate environment")
+    parser.add_argument("--setup", action="store_true", help="Setup environment")
+    
+    # 🆕 NEW: Pipeline execution arguments
+    parser.add_argument("--run-pipeline", action="store_true", help="🆕 Execute complete pipeline from CLI")
+    parser.add_argument("--input", type=str, help="Input CSV file for pipeline")
+    parser.add_argument("--session-name", type=str, help="Custom session name")
+    parser.add_argument("--fast-mode", action="store_true", help="Use fast training modes")
+    
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        # If parsing fails, show help and exit
+        show_help()
+        return 1
+    
     # Handle command line arguments
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
+    if args.help:
+        show_help()
+        return 0
         
-        if arg in ['--help', '-h']:
-            show_help()
+    elif args.check:
+        print("🔍 Checking dependencies...")
+        check_result = enhanced_dependency_check()
+        print_dependency_report(check_result)
+        
+        if check_result['summary']['all_critical_available']:
             return 0
-            
-        elif arg == '--check':
-            print("🔍 Checking dependencies...")
-            check_result = enhanced_dependency_check()
-            print_dependency_report(check_result)
-            
-            if check_result['summary']['all_critical_available']:
-                return 0
-            else:
-                print("\n❌ Critical dependencies missing!")
-                print("💡 Run: python main.py --setup")
-                return 1
-                
-        elif arg == '--validate':
-            project_root = detect_project_root()
-            print(f"🔍 Validating environment in: {project_root}")
-            
-            is_valid, issues = validate_environment(project_root)
-            if is_valid:
-                print("✅ Environment validation passed!")
-                return 0
-            else:
-                print("❌ Environment validation failed:")
-                for issue in issues:
-                    print(f"   • {issue}")
-                return 1
-                
-        elif arg == '--setup':
-            project_root = detect_project_root()
-            print(f"🛠️ Setting up environment in: {project_root}")
-            
-            if setup_environment(project_root):
-                print("\n✅ Setup completed!")
-                print("🚀 Run: python main.py")
-                return 0
-            else:
-                print("\n❌ Setup failed!")
-                return 1
-                
         else:
-            print(f"❌ Unknown argument: {sys.argv[1]}")
-            print("💡 Use --help for usage information")
+            print("\n❌ Critical dependencies missing!")
+            print("💡 Run: python main.py --setup")
+            return 1
+            
+    elif args.validate:
+        project_root = detect_project_root()
+        print(f"🔍 Validating environment in: {project_root}")
+        
+        is_valid, issues = validate_environment(project_root)
+        if is_valid:
+            print("✅ Environment validation passed!")
+            return 0
+        else:
+            print("❌ Environment validation failed:")
+            for issue in issues:
+                print(f"   • {issue}")
+            return 1
+            
+    elif args.setup:
+        project_root = detect_project_root()
+        print(f"🛠️ Setting up environment in: {project_root}")
+        
+        if setup_environment(project_root):
+            print("\n✅ Setup completed!")
+            print("🚀 Run: python main.py")
+            return 0
+        else:
+            print("\n❌ Setup failed!")
             return 1
     
-    # Main execution flow
-    try:
+    # 🆕 NEW: Handle pipeline execution
+    elif args.run_pipeline:
+        if not args.input:
+            print("❌ Error: --input is required for pipeline execution")
+            print("💡 Usage: python main.py --run-pipeline --input your_data.csv")
+            print("💡 Run: python main.py --help for more information")
+            return 1
+        
         # Detect project root
         project_root = detect_project_root()
         logger.info(f"📁 Project root: {project_root}")
         
-        # Validate environment
+        # Validate environment first
         is_valid, issues = validate_environment(project_root)
         if not is_valid:
             print("❌ Environment validation failed:")
@@ -544,26 +901,100 @@ def main():
             print("\n💡 Run: python main.py --setup for guided installation")
             return 1
         
-        # Find GUI file
-        gui_found, gui_msg, gui_path = check_gui_file(project_root)
-        if not gui_found:
-            logger.error(f"❌ {gui_msg}")
-            logger.error("💡 Ensure gui_data_dashboard.py exists in the project directory")
+        # Execute pipeline
+        print(f"🚀 Executing complete sentiment analysis pipeline")
+        print(f"📄 Input file: {args.input}")
+        if args.session_name:
+            print(f"📁 Session name: {args.session_name}")
+        if args.fast_mode:
+            print(f"⚡ Fast mode: enabled")
+        print()
+        
+        try:
+            results = run_complete_pipeline(
+                input_file=args.input,
+                project_root=project_root,
+                session_name=args.session_name,
+                fast_mode=args.fast_mode,
+                logger=logger
+            )
+            
+            if results['success']:
+                print(f"\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
+                print(f"📁 Results saved to: {results['session_directory']}")
+                print(f"⏱️ Total time: {results['total_duration']:.1f} seconds")
+                print(f"📊 Status: {results['status']}")
+                
+                if 'output_files' in results:
+                    print(f"📄 Generated {len(results['output_files'])} files")
+                
+                if results.get('errors'):
+                    print(f"⚠️ Warnings: {len(results['errors'])} issues encountered")
+                
+                return 0
+            else:
+                print(f"\n❌ PIPELINE FAILED")
+                print(f"📁 Partial results in: {results['session_directory']}")
+                if results.get('errors'):
+                    print("💡 Errors:")
+                    for error in results['errors'][:3]:  # Show first 3 errors
+                        print(f"   • {error}")
+                
+                return 1
+                
+        except KeyboardInterrupt:
+            print("\n⏹️ Pipeline cancelled by user")
+            return 0
+        except Exception as e:
+            print(f"\n❌ Pipeline error: {e}")
+            logger.error(f"Pipeline execution failed: {e}")
             return 1
-        
-        logger.info(f"✅ {gui_msg}")
-        
-        # Launch Streamlit app
-        return launch_streamlit_app(gui_path, project_root)
-        
-    except KeyboardInterrupt:
-        logger.info("\n⏹️ Startup cancelled by user")
-        return 0
-        
-    except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
-        logger.error("💡 Run with --help for usage information")
-        return 1
+    
+    # Default: Launch GUI if no specific action is requested
+    else:
+        try:
+            # Detect project root
+            project_root = detect_project_root()
+            logger.info(f"📁 Project root: {project_root}")
+            
+            # Validate environment
+            is_valid, issues = validate_environment(project_root)
+            if not is_valid:
+                print("❌ Environment validation failed:")
+                for issue in issues:
+                    print(f"   • {issue}")
+                print("\n💡 Run: python main.py --validate for details")
+                print("💡 Run: python main.py --setup for guided setup")
+                return 1
+            
+            # Check dependencies
+            check_result = enhanced_dependency_check()
+            if not check_result['summary']['all_critical_available']:
+                print("❌ Critical dependencies missing!")
+                print_dependency_report(check_result)
+                print("\n💡 Run: python main.py --setup for guided installation")
+                return 1
+            
+            # Find GUI file
+            gui_found, gui_msg, gui_path = check_gui_file(project_root)
+            if not gui_found:
+                logger.error(f"❌ {gui_msg}")
+                logger.error("💡 Ensure gui_data_dashboard.py exists in the project directory")
+                return 1
+            
+            logger.info(f"✅ {gui_msg}")
+            
+            # Launch Streamlit app
+            return launch_streamlit_app(gui_path, project_root)
+            
+        except KeyboardInterrupt:
+            logger.info("\n⏹️ Startup cancelled by user")
+            return 0
+            
+        except Exception as e:
+            logger.error(f"❌ Unexpected error: {e}")
+            logger.error("💡 Run with --help for usage information")
+            return 1
 
 if __name__ == "__main__":
     sys.exit(main())
