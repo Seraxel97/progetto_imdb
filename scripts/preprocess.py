@@ -31,6 +31,25 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 import json
 
+def load_csv_robust(path):
+    """Load CSV with fallback encodings and normalized headers."""
+    try:
+        df = pd.read_csv(path, encoding="utf-8", engine="python")
+    except Exception:
+        df = pd.read_csv(path, encoding="latin-1", engine="python")
+
+    df.columns = df.columns.str.strip().str.lower()
+    df = df.rename(columns=lambda c: (
+        c.replace("review", "text").replace("content", "text")
+         .replace("sentiment", "label").replace("class", "label")
+    ))
+
+    if "label" in df.columns:
+        df["label"] = df["label"].astype(str).str.strip().str.lower()
+        df["label"] = df["label"].replace({"positive": 1, "negative": 0, "pos": 1, "neg": 0})
+
+    return df
+
 # Dynamic project root detection
 try:
     CURRENT_FILE = Path(__file__).resolve()
@@ -186,9 +205,9 @@ def preprocess_dataset(input_file, output_dir, logger):
     """
     logger.info(f"Starting preprocessing: {input_file}")
     
-    # Load data
+    # Load data with robust handler
     try:
-        df = pd.read_csv(input_file)
+        df = load_csv_robust(input_file)
         logger.info(f"📊 Loaded dataset: {df.shape}")
     except Exception as e:
         logger.error(f"❌ Error loading CSV: {e}")

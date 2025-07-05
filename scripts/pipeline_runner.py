@@ -39,6 +39,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import torch
+import shutil
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -46,6 +47,25 @@ import subprocess
 from typing import Dict, Any, Optional, Tuple, List
 import warnings
 warnings.filterwarnings('ignore')
+
+def load_csv_robust(path):
+    """Load CSV with fallback encodings and normalized headers."""
+    try:
+        df = pd.read_csv(path, encoding="utf-8", engine="python")
+    except Exception:
+        df = pd.read_csv(path, encoding="latin-1", engine="python")
+
+    df.columns = df.columns.str.strip().str.lower()
+    df = df.rename(columns=lambda c: (
+        c.replace("review", "text").replace("content", "text")
+         .replace("sentiment", "label").replace("class", "label")
+    ))
+
+    if "label" in df.columns:
+        df["label"] = df["label"].astype(str).str.strip().str.lower()
+        df["label"] = df["label"].replace({"positive": 1, "negative": 0, "pos": 1, "neg": 0})
+
+    return df
 
 # FIXED: Dynamic project root detection using standardized approach
 try:
@@ -287,23 +307,13 @@ class PipelineRunner:
             return False, "", error_msg
     
     def run_full_pipeline(self, input_csv_path: str, fast_mode: bool = True) -> Dict[str, Any]:
-        """
-        Complete automated pipeline using enhanced_utils_unified.py auto_embed_and_predict()
-        
-        Args:
-            input_csv_path: Path to the CSV file to analyze
-            fast_mode: Whether to use fast training modes
-        
-        Returns:
-            Comprehensive pipeline results dictionary
-        """
-        logger.info(f"🚀 Starting complete automated pipeline for: {input_csv_path}")
-        
+        """Run the full preprocessing → embedding → training → report pipeline."""
+
+        logger.info(f"🚀 Starting sequential pipeline for: {input_csv_path}")
+
         pipeline_start = datetime.now()
-        
-        # Initialize results
         results = {
-            'pipeline_type': 'full_automated',
+            'pipeline_type': 'sequential',
             'input_file': input_csv_path,
             'start_time': pipeline_start.isoformat(),
             'fast_mode': fast_mode,
@@ -312,109 +322,73 @@ class PipelineRunner:
             'steps': {},
             'final_results': {}
         }
-        
-        try:
-            # Step 1: Import and use enhanced_utils auto_embed_and_predict
-            logger.info("📦 Loading enhanced utilities...")
-            
-            try:
-                from scripts.enhanced_utils_unified import auto_embed_and_predict
-                results['steps']['enhanced_utils_loaded'] = {'success': True}
-            except ImportError as e:
-                error_msg = f"Failed to import enhanced_utils_unified: {e}"
-                logger.error(f"❌ {error_msg}")
-                results['steps']['enhanced_utils_loaded'] = {'success': False, 'error': error_msg}
-                results['error'] = error_msg
-                return results
-            
-            # Step 2: Execute complete automated pipeline
-            logger.info("🔄 Executing complete automated pipeline...")
-            
-            auto_results = auto_embed_and_predict(
-                csv_path=input_csv_path,
-                fast_mode=fast_mode,
-                save_intermediate=True
-            )
-            
-            results['steps']['auto_pipeline'] = {
-                'success': auto_results.get('overall_success', False),
-                'details': auto_results
-            }
-            
-            if not auto_results.get('overall_success', False):
-                error_msg = auto_results.get('errors', ['Auto pipeline failed'])[0]
-                logger.error(f"❌ Automated pipeline failed: {error_msg}")
-                results['error'] = error_msg
-                results['session_directory'] = auto_results.get('session_directory') or auto_results.get('session_dir')
-                return results
-            
-            # Step 3: Extract and organize results for GUI
-            logger.info("📊 Organizing results for GUI integration...")
-            
-            session_dir = auto_results.get('session_directory') or auto_results.get('session_dir')
-            results['session_directory'] = session_dir
 
-            # Organize final results
-            results['final_results'] = {
-                'predictions_file': auto_results.get('predictions'),
-                'report_pdf': auto_results.get('report_pdf'),
-                'summary_file': auto_results.get('summary_file'),
-                'plots': auto_results.get('plots', []),
-                'session_directory': session_dir,
-                'pipeline_steps': auto_results.get('steps', {})
-            }
-            
-            # Step 4: Generate additional analysis if needed
-            if session_dir and Path(session_dir).exists():
-                logger.info("📈 Generating additional analysis files...")
-                
-                # Create summary report
-                self.create_pipeline_summary_report(results, session_dir)
-                
-                # Log success metrics if available
-                if results['final_results'].get('metrics'):
-                    for model_name, metrics in results['final_results']['metrics'].items():
-                        accuracy = metrics.get('accuracy', 0)
-                        f1 = metrics.get('f1_score', 0)
-                        logger.info(f"📊 {model_name.upper()}: Accuracy={accuracy:.3f}, F1={f1:.3f}")
-            
-            # Step 5: Final success assessment
+        try:
+            # Create session directory
+            session_dir = self.paths['results_dir'] / f"session_{pipeline_start.strftime('%Y%m%d_%H%M%S')}"
+            for sub in ['processed', 'embeddings', 'models', 'plots', 'reports']:
+                (session_dir / sub).mkdir(parents=True, exist_ok=True)
+
+            results['session_directory'] = str(session_dir)
+
+            step_args = [
+                ('preprocess', 'preprocess.py', ['--input', input_csv_path, '--output-dir', str(session_dir / 'processed')]),
+                ('embed', 'embed_dataset.py', ['--input-dir', str(session_dir / 'processed'), '--output-dir', str(session_dir / 'embeddings')]),
+                ('train_mlp', 'train_mlp.py', ['--embeddings-dir', str(session_dir / 'embeddings'), '--output-dir', str(session_dir / 'models')]),
+                ('train_svm', 'train_svm.py', ['--embeddings-dir', str(session_dir / 'embeddings'), '--output-dir', str(session_dir / 'models')] + (['--fast'] if fast_mode else [])),
+                ('report', 'report.py', ['--models-dir', str(session_dir / 'models'), '--test-data', str(session_dir / 'processed' / 'test.csv'), '--results-dir', str(session_dir / 'reports'), '--model-type', 'all'])
+            ]
+
+            for name, script, args in step_args:
+                success, stdout, stderr = self.run_subprocess_step(script, args, name)
+                results['steps'][name] = {'success': success}
+                if not success:
+                    results['error'] = f"{name} failed"
+                    return results
+
+            # Collect report summary
+            report_json = session_dir / 'reports' / 'evaluation_report.json'
+            summary = {}
+            insights = []
+            if report_json.exists():
+                try:
+                    with open(report_json, 'r', encoding='utf-8') as f:
+                        rep = json.load(f)
+                    summary = rep.get('summary', {})
+                    insights = summary.get('insights', [])
+                except Exception as e:
+                    logger.warning(f"Could not read report summary: {e}")
+
+            zip_path = shutil.make_archive(str(session_dir), 'zip', session_dir)
+
             pipeline_end = datetime.now()
-            duration = (pipeline_end - pipeline_start).total_seconds()
-            
-            results['end_time'] = pipeline_end.isoformat()
-            results['duration_seconds'] = duration
-            results['success'] = True
-            
-            logger.info(f"🎉 Complete automated pipeline SUCCESS!")
-            logger.info(f"   Duration: {duration:.1f} seconds")
-            logger.info(f"   Results saved to: {session_dir}")
-            
-            # Count insights
-            insights_count = len(results['final_results'].get('insights', []))
-            logger.info(f"   Generated {insights_count} intelligent insights")
-            
-            # Count predictions
-            total_predictions = 0
-            for model_name, preds in results['final_results'].get('predictions', {}).items():
-                if isinstance(preds, list):
-                    total_predictions += len(preds)
-            logger.info(f"   Total predictions: {total_predictions}")
-            
+
+            results.update({
+                'end_time': pipeline_end.isoformat(),
+                'duration_seconds': (pipeline_end - pipeline_start).total_seconds(),
+                'success': True
+            })
+
+            results['final_results'] = {
+                'session_directory': str(session_dir),
+                'summary': summary,
+                'insights': insights,
+                'zip_path': zip_path
+            }
+
+            logger.info(f"🎉 Pipeline completed successfully in {results['duration_seconds']:.1f}s")
+
             return results
-            
+
         except Exception as e:
             pipeline_end = datetime.now()
-            duration = (pipeline_end - pipeline_start).total_seconds()
-            
-            error_msg = f"Pipeline failed: {str(e)}"
-            logger.error(f"❌ {error_msg}")
-            
-            results['end_time'] = pipeline_end.isoformat()
-            results['duration_seconds'] = duration
-            results['success'] = False
-            results['error'] = error_msg
-            
+            results.update({
+                'end_time': pipeline_end.isoformat(),
+                'duration_seconds': (pipeline_end - pipeline_start).total_seconds(),
+                'success': False,
+                'error': str(e)
+            })
+            logger.error(f"❌ Pipeline failed: {e}")
             return results
     
     def create_pipeline_summary_report(self, results: Dict[str, Any], session_dir: str):
@@ -529,7 +503,7 @@ class PipelineRunner:
             if not Path(csv_path).exists():
                 raise FileNotFoundError(f"CSV file not found: {csv_path}")
             
-            df = pd.read_csv(csv_path)
+            df = load_csv_robust(csv_path)
             
             # Basic file info
             analysis = {
