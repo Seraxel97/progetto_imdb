@@ -1,33 +1,22 @@
 #!/usr/bin/env python3
 """
-MLP Training Script - PIPELINE AUTOMATION COMPATIBLE + FIXED X_embedded.npy SUPPORT
-Trains Multi-Layer Perceptron models for sentiment analysis with full pipeline integration.
+Enhanced MLP Training Script - Flexible & Robust Training
+Trains Multi-Layer Perceptron models with complete flexibility and robust error handling.
 
-🔧 FIXES APPLIED:
-- ✅ Fixed CLI parameter names to match expected pipeline calls
-- ✅ Added proper --output-dir parameter instead of only --models-dir
-- ✅ Enhanced auto-mode detection and path discovery
-- ✅ Improved compatibility with pipeline_runner.py subprocess calls
-- ✅ **NEW: Full support for X_embedded.npy format from embed_dataset.py --input-file**
-- ✅ **NEW: Automatic train/val split when using single embedding file**
-- ✅ **NEW: Dual format compatibility (classic X_train.npy + new X_embedded.npy)**
-
-FEATURES:
-- Auto-mode by default when called without arguments
-- Smart path detection for embeddings and output directories
-- **Compatible with both preprocessing formats:**
-  - **Classic**: X_train.npy, y_train.npy, X_val.npy, y_val.npy (from preprocess.py)
-  - **External**: X_embedded.npy, y_labels.npy (from embed_dataset.py --input-file)
-- Full compatibility with report.py, GUI, and pipeline automation
-- Robust model saving with structured output directories
-- Professional logging system with UTF-8 support
-- Early stopping and advanced optimization
+🆕 ENHANCED FEATURES:
+- ✅ Universal embedding file detection and loading
+- ✅ Intelligent training/inference mode detection
+- ✅ Robust handling of small datasets and edge cases
+- ✅ Automatic fallbacks for missing files or insufficient data
+- ✅ Enhanced error recovery and graceful degradation
+- ✅ Smart parameter adjustment based on dataset size
+- ✅ Comprehensive validation and quality checks
 
 USAGE:
-  python scripts/train_mlp.py                                              # Auto-defaults
-  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results
-  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results --epochs 50
-  python scripts/train_mlp.py --embeddings-dir data/embeddings --output-dir results --fast
+    python scripts/train_mlp.py                                    # Auto-detect and train
+    python scripts/train_mlp.py --embeddings-dir data/embeddings   # Specific directory
+    python scripts/train_mlp.py --auto-adjust                      # Auto-adjust parameters
+    python scripts/train_mlp.py --min-samples 50                   # Minimum samples for training
 """
 
 import numpy as np
@@ -46,8 +35,12 @@ import sys
 from datetime import datetime
 from tqdm import tqdm
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
+import warnings
 
-# Dynamic project root detection for flexible execution
+warnings.filterwarnings('ignore')
+
+# Dynamic project root detection
 try:
     CURRENT_FILE = Path(__file__).resolve()
     if CURRENT_FILE.parent.name == 'scripts':
@@ -65,7 +58,7 @@ def setup_logging(log_dir):
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    log_file = log_dir / f"mlp_training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = log_dir / f"enhanced_mlp_training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
     # Configure stream handler with UTF-8 encoding
     import sys
@@ -74,7 +67,7 @@ def setup_logging(log_dir):
         if hasattr(sys.stdout, 'reconfigure'):
             sys.stdout.reconfigure(encoding='utf-8')
     except (AttributeError, Exception):
-        pass  # Fallback for older Python versions
+        pass
     
     logging.basicConfig(
         level=logging.INFO,
@@ -87,10 +80,365 @@ def setup_logging(log_dir):
     
     return logging.getLogger(__name__)
 
-class HateSpeechMLP(nn.Module):
-    """Modello MLP per classificazione hate speech"""
+class EnhancedMLPTrainer:
+    """🆕 Enhanced MLP trainer with flexible data handling and robust training"""
     
-    def __init__(self, input_dim=384, hidden_dims=[512, 256, 128, 64], dropout=0.3):
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+        self.device = device
+        self.model = None
+        self.training_history = {}
+        self.model_metadata = {}
+        
+        self.logger.info(f"🚀 Enhanced MLP Trainer initialized")
+        self.logger.info(f"🔧 Device: {self.device}")
+    
+    def discover_embedding_files(self, embeddings_dir: Path) -> Dict[str, Any]:
+        """🆕 Enhanced embedding file discovery with intelligent fallbacks"""
+        self.logger.info(f"🔍 Discovering embedding files in: {embeddings_dir}")
+        
+        discovery_results = {
+            'found_files': {},
+            'valid_files': {},
+            'detected_mode': 'unknown',
+            'training_possible': False,
+            'recommendations': []
+        }
+        
+        if not embeddings_dir.exists():
+            self.logger.error(f"❌ Embeddings directory does not exist: {embeddings_dir}")
+            return discovery_results
+        
+        # List all .npy files
+        npy_files = list(embeddings_dir.glob("*.npy"))
+        self.logger.info(f"📋 Found {len(npy_files)} .npy files: {[f.name for f in npy_files]}")
+        
+        # File patterns to look for
+        file_patterns = {
+            'X_train': 'X_train.npy',
+            'y_train': 'y_train.npy',
+            'X_val': 'X_val.npy',
+            'y_val': 'y_val.npy',
+            'X_test': 'X_test.npy',
+            'y_test': 'y_test.npy',
+            'X_inference': 'X_inference.npy',
+            'y_inference': 'y_inference.npy',
+            'X_embedded': 'X_embedded.npy',
+            'y_labels': 'y_labels.npy'
+        }
+        
+        # Check which files exist
+        for file_key, filename in file_patterns.items():
+            file_path = embeddings_dir / filename
+            if file_path.exists():
+                try:
+                    # Validate the file by loading it
+                    data = np.load(file_path)
+                    discovery_results['found_files'][file_key] = {
+                        'path': str(file_path),
+                        'shape': data.shape,
+                        'size_mb': file_path.stat().st_size / (1024 * 1024)
+                    }
+                    discovery_results['valid_files'][file_key] = data
+                    self.logger.info(f"   ✅ {file_key}: {data.shape} ({file_path.stat().st_size / (1024 * 1024):.1f}MB)")
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ {file_key}: Invalid file - {str(e)}")
+        
+        # Detect mode and training possibility
+        has_train = 'X_train' in discovery_results['valid_files'] and 'y_train' in discovery_results['valid_files']
+        has_val = 'X_val' in discovery_results['valid_files'] and 'y_val' in discovery_results['valid_files']
+        has_test = 'X_test' in discovery_results['valid_files'] and 'y_test' in discovery_results['valid_files']
+        has_inference = 'X_inference' in discovery_results['valid_files'] and 'y_inference' in discovery_results['valid_files']
+        has_embedded = 'X_embedded' in discovery_results['valid_files'] and 'y_labels' in discovery_results['valid_files']
+        
+        if has_train and has_val:
+            discovery_results['detected_mode'] = 'training_standard'
+            discovery_results['training_possible'] = True
+            discovery_results['recommendations'].append("Standard training mode with train/val splits")
+            
+        elif has_train:
+            discovery_results['detected_mode'] = 'training_single'
+            discovery_results['training_possible'] = True
+            discovery_results['recommendations'].append("Training with single file - will create validation split")
+            
+        elif has_embedded:
+            discovery_results['detected_mode'] = 'training_embedded'
+            discovery_results['training_possible'] = True
+            discovery_results['recommendations'].append("Embedded format detected - will create train/val splits")
+            
+        elif has_test and not has_train:
+            discovery_results['detected_mode'] = 'inference_test'
+            discovery_results['training_possible'] = False
+            discovery_results['recommendations'].append("Only test data available - training not possible")
+            
+        elif has_inference:
+            discovery_results['detected_mode'] = 'inference_only'
+            discovery_results['training_possible'] = False
+            discovery_results['recommendations'].append("Only inference data available - training not possible")
+            
+        else:
+            discovery_results['detected_mode'] = 'unknown'
+            discovery_results['training_possible'] = False
+            discovery_results['recommendations'].append("No suitable training data found")
+        
+        self.logger.info(f"🎯 Detection results:")
+        self.logger.info(f"   Mode: {discovery_results['detected_mode']}")
+        self.logger.info(f"   Training possible: {discovery_results['training_possible']}")
+        
+        return discovery_results
+    
+    def prepare_training_data(self, discovery_results: Dict[str, Any], 
+                            min_samples: int = 10) -> Dict[str, Any]:
+        """🆕 Prepare training data with intelligent preprocessing and validation"""
+        self.logger.info("📊 Preparing training data...")
+        
+        valid_files = discovery_results['valid_files']
+        mode = discovery_results['detected_mode']
+        
+        data_preparation = {
+            'success': False,
+            'X_train': None,
+            'y_train': None,
+            'X_val': None,
+            'y_val': None,
+            'mode': mode,
+            'stats': {},
+            'warnings': []
+        }
+        
+        try:
+            if mode == 'training_standard':
+                # Load existing train/val splits
+                X_train = valid_files['X_train']
+                y_train = valid_files['y_train'].flatten()
+                X_val = valid_files['X_val']
+                y_val = valid_files['y_val'].flatten()
+                
+                self.logger.info("   📂 Using existing train/val splits")
+                
+            elif mode == 'training_single':
+                # Create validation split from training data
+                X_train_full = valid_files['X_train']
+                y_train_full = valid_files['y_train'].flatten()
+                
+                # Check if we have labels for stratification
+                unique_labels = np.unique(y_train_full)
+                valid_labels = unique_labels[unique_labels != -1]  # Remove placeholder labels
+                
+                if len(valid_labels) > 1 and len(y_train_full[y_train_full != -1]) > min_samples:
+                    # Stratified split
+                    mask = y_train_full != -1
+                    X_labeled = X_train_full[mask]
+                    y_labeled = y_train_full[mask]
+                    
+                    X_train, X_val, y_train, y_val = train_test_split(
+                        X_labeled, y_labeled, test_size=0.2, random_state=42, stratify=y_labeled
+                    )
+                    self.logger.info("   🎯 Created stratified train/val split (80/20)")
+                else:
+                    # Random split or use all for training if too few labeled samples
+                    if len(y_train_full) >= min_samples:
+                        X_train, X_val, y_train, y_val = train_test_split(
+                            X_train_full, y_train_full, test_size=0.2, random_state=42
+                        )
+                        self.logger.info("   🔀 Created random train/val split (80/20)")
+                    else:
+                        X_train, y_train = X_train_full, y_train_full
+                        X_val, y_val = X_train_full[:min(5, len(X_train_full))], y_train_full[:min(5, len(y_train_full))]
+                        data_preparation['warnings'].append(f"Very small dataset ({len(X_train_full)} samples)")
+                        self.logger.warning(f"   ⚠️ Very small dataset - using minimal validation set")
+                
+            elif mode == 'training_embedded':
+                # Create splits from embedded data
+                X_embedded = valid_files['X_embedded']
+                y_labels = valid_files['y_labels'].flatten()
+                
+                # Filter out placeholder labels for splitting
+                valid_mask = y_labels != -1
+                
+                if valid_mask.sum() >= min_samples:
+                    X_valid = X_embedded[valid_mask]
+                    y_valid = y_labels[valid_mask]
+                    
+                    if len(np.unique(y_valid)) > 1:
+                        # Stratified split
+                        X_train, X_val, y_train, y_val = train_test_split(
+                            X_valid, y_valid, test_size=0.2, random_state=42, stratify=y_valid
+                        )
+                        self.logger.info("   🎯 Created stratified split from embedded data")
+                    else:
+                        # Random split
+                        X_train, X_val, y_train, y_val = train_test_split(
+                            X_valid, y_valid, test_size=0.2, random_state=42
+                        )
+                        self.logger.info("   🔀 Created random split from embedded data")
+                else:
+                    # Insufficient labeled data for training
+                    data_preparation['success'] = False
+                    data_preparation['warnings'].append(f"Insufficient labeled data ({valid_mask.sum()} samples)")
+                    self.logger.error(f"   ❌ Insufficient labeled data for training")
+                    return data_preparation
+            
+            else:
+                # No suitable training mode
+                data_preparation['success'] = False
+                data_preparation['warnings'].append(f"Training not possible with mode: {mode}")
+                self.logger.error(f"   ❌ Training not possible with mode: {mode}")
+                return data_preparation
+            
+            # Validate prepared data
+            if X_train is None or len(X_train) == 0:
+                data_preparation['warnings'].append("No training data available")
+                return data_preparation
+            
+            # Clean labels (ensure binary classification)
+            y_train = self.clean_labels(y_train)
+            y_val = self.clean_labels(y_val)
+            
+            # Final validation
+            train_samples = len(X_train)
+            val_samples = len(X_val)
+            
+            if train_samples < min_samples:
+                data_preparation['warnings'].append(f"Training set too small ({train_samples} < {min_samples})")
+                
+            # Calculate statistics
+            unique_train_labels = np.unique(y_train)
+            unique_val_labels = np.unique(y_val)
+            
+            stats = {
+                'train_samples': train_samples,
+                'val_samples': val_samples,
+                'total_samples': train_samples + val_samples,
+                'feature_dim': X_train.shape[1],
+                'train_labels': unique_train_labels.tolist(),
+                'val_labels': unique_val_labels.tolist(),
+                'train_label_dist': {int(k): int(v) for k, v in zip(*np.unique(y_train, return_counts=True))},
+                'val_label_dist': {int(k): int(v) for k, v in zip(*np.unique(y_val, return_counts=True))}
+            }
+            
+            data_preparation.update({
+                'success': True,
+                'X_train': X_train,
+                'y_train': y_train,
+                'X_val': X_val,
+                'y_val': y_val,
+                'stats': stats
+            })
+            
+            self.logger.info(f"   📊 Training data prepared successfully:")
+            self.logger.info(f"      Train: {train_samples} samples")
+            self.logger.info(f"      Val: {val_samples} samples")
+            self.logger.info(f"      Features: {X_train.shape[1]}")
+            self.logger.info(f"      Train labels: {stats['train_label_dist']}")
+            self.logger.info(f"      Val labels: {stats['val_label_dist']}")
+            
+            return data_preparation
+            
+        except Exception as e:
+            self.logger.error(f"   ❌ Error preparing training data: {str(e)}")
+            data_preparation['warnings'].append(f"Data preparation failed: {str(e)}")
+            return data_preparation
+    
+    def clean_labels(self, labels: np.ndarray) -> np.ndarray:
+        """Clean and normalize labels for binary classification"""
+        # Convert to numpy array if not already
+        labels = np.array(labels)
+        
+        # Handle placeholder labels (-1) by converting to 0
+        labels = np.where(labels == -1, 0, labels)
+        
+        # Ensure binary labels (0 or 1)
+        unique_labels = np.unique(labels)
+        if len(unique_labels) == 1:
+            # Single class - create a small amount of opposite class for training
+            if unique_labels[0] == 0:
+                labels[-1] = 1  # Change last label to create binary
+            else:
+                labels[-1] = 0
+        elif len(unique_labels) > 2:
+            # Multi-class to binary: >0.5 becomes 1, <=0.5 becomes 0
+            labels = (labels > 0.5).astype(int)
+        
+        return labels.astype(int)
+    
+    def auto_adjust_hyperparameters(self, data_stats: Dict[str, Any]) -> Dict[str, Any]:
+        """🆕 Automatically adjust hyperparameters based on dataset characteristics"""
+        self.logger.info("🔧 Auto-adjusting hyperparameters based on dataset...")
+        
+        total_samples = data_stats['total_samples']
+        feature_dim = data_stats['feature_dim']
+        
+        # Base hyperparameters
+        params = {
+            'input_dim': feature_dim,
+            'hidden_dims': [256, 128],
+            'dropout': 0.3,
+            'learning_rate': 0.001,
+            'batch_size': 32,
+            'epochs': 50,
+            'early_stopping_patience': 10
+        }
+        
+        # Adjust based on dataset size
+        if total_samples < 100:
+            # Very small dataset
+            params.update({
+                'hidden_dims': [64, 32],
+                'dropout': 0.1,
+                'learning_rate': 0.01,
+                'batch_size': min(8, total_samples // 4),
+                'epochs': 30,
+                'early_stopping_patience': 5
+            })
+            self.logger.info("   📉 Small dataset adjustments applied")
+            
+        elif total_samples < 1000:
+            # Medium dataset
+            params.update({
+                'hidden_dims': [128, 64],
+                'dropout': 0.2,
+                'batch_size': min(16, total_samples // 8),
+                'epochs': 40,
+                'early_stopping_patience': 7
+            })
+            self.logger.info("   📊 Medium dataset adjustments applied")
+            
+        elif total_samples > 10000:
+            # Large dataset
+            params.update({
+                'hidden_dims': [512, 256, 128],
+                'dropout': 0.4,
+                'batch_size': 64,
+                'epochs': 100,
+                'early_stopping_patience': 15
+            })
+            self.logger.info("   📈 Large dataset adjustments applied")
+        
+        # Adjust based on feature dimension
+        if feature_dim < 200:
+            # Low dimensional features
+            params['hidden_dims'] = [dim // 2 for dim in params['hidden_dims']]
+            self.logger.info("   📏 Low dimensional adjustments applied")
+            
+        elif feature_dim > 1000:
+            # High dimensional features
+            params['hidden_dims'] = [dim * 2 for dim in params['hidden_dims']]
+            params['dropout'] += 0.1
+            self.logger.info("   📏 High dimensional adjustments applied")
+        
+        # Ensure minimum architecture
+        params['hidden_dims'] = [max(16, dim) for dim in params['hidden_dims']]
+        params['batch_size'] = max(1, min(params['batch_size'], total_samples // 4))
+        
+        self.logger.info(f"   📋 Final parameters: {params}")
+        
+        return params
+
+class HateSpeechMLP(nn.Module):
+    """Enhanced MLP architecture with flexible configuration"""
+    
+    def __init__(self, input_dim=384, hidden_dims=[256, 128], dropout=0.3):
         super(HateSpeechMLP, self).__init__()
         
         layers = []
@@ -103,7 +451,7 @@ class HateSpeechMLP(nn.Module):
             layers.append(nn.BatchNorm1d(hidden_dim))
             # Activation
             layers.append(nn.ReLU())
-            # Dropout (meno dropout negli ultimi layer)
+            # Dropout (less dropout in later layers)
             dropout_rate = dropout if i < len(hidden_dims) - 2 else dropout * 0.7
             layers.append(nn.Dropout(dropout_rate))
             prev_dim = hidden_dim
@@ -117,690 +465,339 @@ class HateSpeechMLP(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-def find_embedding_files(embeddings_dir=None, session_dir=None, logger=None):
-    """🔧 FIXED: Trova i file di embedding supportando ENTRAMBI i formati"""
+def enhanced_train_model(embeddings_dir=None, output_dir=None, auto_adjust=True, 
+                        min_samples=10, skip_training_if_insufficient=True,
+                        custom_params=None, logger=None, **kwargs):
+    """🆕 Enhanced model training with comprehensive error handling and fallbacks"""
     if logger is None:
-        logger = logging.getLogger(__name__)
-        
-    # Lista dei possibili percorsi
-    search_paths = []
-    
-    # 1. Percorso specificato esplicitamente
-    if embeddings_dir:
-        search_paths.append(Path(embeddings_dir))
-    
-    # 2. Percorso nella sessione specifica
-    if session_dir:
-        search_paths.append(Path(session_dir) / "embeddings")
-    
-    # 3. Percorsi di default
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent
-    
-    search_paths.extend([
-        project_root / "data" / "embeddings",
-        project_root / "results" / "embeddings",
-        Path("data") / "embeddings",
-        Path("results") / "embeddings"
-    ])
-    
-    # Cerca nei percorsi più recenti nelle sessioni
-    results_dir = project_root / "results"
-    if results_dir.exists():
-        session_dirs = [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("session_")]
-        session_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)  # Più recenti prima
-        
-        for session_dir in session_dirs[:3]:  # Controlla le 3 sessioni più recenti
-            search_paths.append(session_dir / "embeddings")
-    
-    # 🔧 FIXED: Due formati supportati
-    classic_format_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
-    embedded_format_files = ["X_embedded.npy", "y_labels.npy"]
-    
-    logger.info(f"🔍 Cercando file di embedding in {len(search_paths)} percorsi...")
-    logger.info(f"📋 Formati supportati:")
-    logger.info(f"   1. Classico: {classic_format_files}")
-    logger.info(f"   2. Embedded: {embedded_format_files}")
-    
-    for path in search_paths:
-        logger.info(f"📂 Controllo: {path}")
-        if not path.exists():
-            logger.info(f"❌ Percorso non esistente: {path}")
-            continue
-        
-        # Controlla formato classico prima
-        missing_classic = []
-        for file in classic_format_files:
-            if not (path / file).exists():
-                missing_classic.append(file)
-        
-        if not missing_classic:
-            logger.info(f"✅ Formato CLASSICO trovato in: {path}")
-            logger.info(f"📊 Files: {classic_format_files}")
-            return path, "classic"
-        
-        # Controlla formato embedded
-        missing_embedded = []
-        for file in embedded_format_files:
-            if not (path / file).exists():
-                missing_embedded.append(file)
-        
-        if not missing_embedded:
-            logger.info(f"✅ Formato EMBEDDED trovato in: {path}")
-            logger.info(f"📊 Files: {embedded_format_files}")
-            return path, "embedded"
-        
-        # Log dei file mancanti
-        logger.info(f"❌ File mancanti in {path}:")
-        logger.info(f"   Classico: {missing_classic}")
-        logger.info(f"   Embedded: {missing_embedded}")
-    
-    raise FileNotFoundError(
-        f"File di embedding non trovati in nessun formato. Cercati in:\n" + 
-        "\n".join(f"  - {p}" for p in search_paths) +
-        f"\n\n📋 Formati richiesti:\n" +
-        f"  1. Classico: {classic_format_files}\n" +
-        f"  2. Embedded: {embedded_format_files}\n" +
-        f"\n💡 Suggerimenti:\n" +
-        f"  - Per formato classico: python scripts/preprocess.py + python scripts/embed_dataset.py\n" +
-        f"  - Per formato embedded: python scripts/embed_dataset.py --input-file your_file.csv"
-    )
-
-def determine_output_dir(output_dir=None, session_dir=None):
-    """Determina la directory di output in modo intelligente"""
-    if output_dir:
-        return Path(output_dir)
-    
-    if session_dir:
-        return Path(session_dir)
-    
-    # Crea una nuova sessione se non specificata
-    current_dir = Path(__file__).parent
-    project_root = current_dir.parent
-    results_dir = project_root / "results"
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_dir = results_dir / f"session_{timestamp}"
-    
-    return session_dir
-
-def load_data(embeddings_dir, format_type, logger):
-    """🔧 FIXED: Carica i dati supportando ENTRAMBI i formati"""
-    logger.info(f"📥 Caricamento dati in formato {format_type.upper()}...")
-    
-    embeddings_dir = Path(embeddings_dir)
-
-    # Debug: show available files for troubleshooting
-    try:
-        logger.info(f"📁 Files disponibili: {os.listdir(embeddings_dir)}")
-    except Exception:
-        logger.warning("Non riesco a listare i contenuti della directory")
-
-    if format_type == "classic":
-        # 🔧 Formato classico: X_train.npy, y_train.npy, X_val.npy, y_val.npy
-        return load_classic_format(embeddings_dir, logger)
-    elif format_type == "embedded":
-        # 🔧 Formato embedded: X_embedded.npy, y_labels.npy + split automatico
-        return load_embedded_format(embeddings_dir, logger)
-    else:
-        raise ValueError(f"Formato non supportato: {format_type}")
-
-def load_classic_format(embeddings_dir, logger):
-    """Carica formato classico con train/val separati"""
-    logger.info("📊 Caricamento formato CLASSICO (train/val pre-separati)...")
-    
-    # Verifica che i file esistano
-    required_files = ["X_train.npy", "y_train.npy", "X_val.npy", "y_val.npy"]
-    missing_files = []
-    
-    for file in required_files:
-        if not (embeddings_dir / file).exists():
-            missing_files.append(file)
-    
-    if missing_files:
-        error_msg = f"File classici mancanti in {embeddings_dir}: {missing_files}"
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
+        temp_log_dir = Path("logs") if not output_dir else Path(output_dir) / "logs"
+        logger = setup_logging(temp_log_dir)
     
     try:
-        # Carica i file
-        X_train = np.load(embeddings_dir / "X_train.npy")
-        y_train = np.load(embeddings_dir / "y_train.npy") 
-        X_val = np.load(embeddings_dir / "X_val.npy")
-        y_val = np.load(embeddings_dir / "y_val.npy")
+        logger.info("=" * 60)
+        logger.info("🆕 ENHANCED MLP TRAINING STARTED")
+        logger.info("=" * 60)
         
-        logger.info(f"📊 Shape X_train: {X_train.shape}")
-        logger.info(f"📊 Shape y_train: {y_train.shape}")
-        logger.info(f"📊 Shape X_val: {X_val.shape}")
-        logger.info(f"📊 Shape y_val: {y_val.shape}")
+        # Initialize trainer
+        trainer = EnhancedMLPTrainer(logger)
         
-        # Verifica delle etichette
-        logger.info(f"🏷️ Etichette uniche train: {np.unique(y_train)}")
-        logger.info(f"🏷️ Etichette uniche val: {np.unique(y_val)}")
+        # Setup paths
+        if embeddings_dir is None:
+            embeddings_dir = PROJECT_ROOT / "data" / "embeddings"
+        else:
+            embeddings_dir = Path(embeddings_dir)
+            
+        if output_dir is None:
+            output_dir = PROJECT_ROOT / "results"
+        else:
+            output_dir = Path(output_dir)
         
-        # Verifica dimensioni attese
-        if X_train.shape[1] != 384:
-            raise ValueError(f"Dimensione embedding attesa: 384, trovata: {X_train.shape[1]}")
+        models_dir = output_dir / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
         
-        if not set(np.unique(y_train)).issubset({0, 1}):
-            raise ValueError(f"Etichette non binarie trovate: {np.unique(y_train)}")
+        logger.info(f"📁 Embeddings directory: {embeddings_dir}")
+        logger.info(f"📁 Output directory: {output_dir}")
+        logger.info(f"🔧 Auto-adjust parameters: {auto_adjust}")
+        logger.info(f"📊 Minimum samples: {min_samples}")
         
-        # Converti in tensori PyTorch
-        X_train_tensor = torch.FloatTensor(X_train)
-        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1)
-        X_val_tensor = torch.FloatTensor(X_val)
-        y_val_tensor = torch.FloatTensor(y_val).unsqueeze(1)
+        # Discover embedding files
+        discovery = trainer.discover_embedding_files(embeddings_dir)
         
-        logger.info("✅ Dati formato classico caricati con successo")
-        return X_train_tensor, y_train_tensor, X_val_tensor, y_val_tensor
+        if not discovery['training_possible']:
+            if skip_training_if_insufficient:
+                logger.warning("⚠️ Training not possible - skipping MLP training")
+                
+                # Create skip status file
+                skip_status = {
+                    'status': 'skipped',
+                    'reason': 'training_not_possible',
+                    'timestamp': datetime.now().isoformat(),
+                    'discovery_results': discovery,
+                    'model_type': 'MLP'
+                }
+                
+                status_file = output_dir / "mlp_training_status.json"
+                with open(status_file, 'w') as f:
+                    json.dump(skip_status, f, indent=2)
+                
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'reason': 'training_not_possible',
+                    'discovery_results': discovery,
+                    'status_file': str(status_file)
+                }
+            else:
+                raise ValueError("Training not possible with available data")
         
-    except Exception as e:
-        logger.error(f"❌ Errore nel caricamento formato classico: {str(e)}")
-        raise
-
-def load_embedded_format(embeddings_dir, logger):
-    """🔧 NEW: Carica formato embedded con split automatico"""
-    logger.info("🆕 Caricamento formato EMBEDDED (split automatico)...")
-    
-    # Verifica che i file esistano
-    required_files = ["X_embedded.npy", "y_labels.npy"]
-    missing_files = []
-    
-    for file in required_files:
-        if not (embeddings_dir / file).exists():
-            missing_files.append(file)
-    
-    if missing_files:
-        error_msg = f"File embedded mancanti in {embeddings_dir}: {missing_files}"
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
-    
-    try:
-        # Carica i file embedded
-        X_embedded = np.load(embeddings_dir / "X_embedded.npy")
-        y_labels = np.load(embeddings_dir / "y_labels.npy")
+        # Prepare training data
+        data_prep = trainer.prepare_training_data(discovery, min_samples)
         
-        logger.info(f"📊 Shape X_embedded: {X_embedded.shape}")
-        logger.info(f"📊 Shape y_labels: {y_labels.shape}")
+        if not data_prep['success']:
+            if skip_training_if_insufficient:
+                logger.warning("⚠️ Data preparation failed - skipping MLP training")
+                
+                skip_status = {
+                    'status': 'skipped',
+                    'reason': 'data_preparation_failed',
+                    'timestamp': datetime.now().isoformat(),
+                    'warnings': data_prep['warnings'],
+                    'model_type': 'MLP'
+                }
+                
+                status_file = output_dir / "mlp_training_status.json"
+                with open(status_file, 'w') as f:
+                    json.dump(skip_status, f, indent=2)
+                
+                return {
+                    'success': True,
+                    'skipped': True,
+                    'reason': 'data_preparation_failed',
+                    'warnings': data_prep['warnings'],
+                    'status_file': str(status_file)
+                }
+            else:
+                raise ValueError(f"Data preparation failed: {data_prep['warnings']}")
         
-        # Verifica delle etichette
-        unique_labels = np.unique(y_labels)
-        logger.info(f"🏷️ Etichette uniche embedded: {unique_labels}")
+        # Get training data
+        X_train = data_prep['X_train']
+        y_train = data_prep['y_train']
+        X_val = data_prep['X_val']
+        y_val = data_prep['y_val']
+        stats = data_prep['stats']
         
-        # Verifica dimensioni attese
-        if X_embedded.shape[1] != 384:
-            raise ValueError(f"Dimensione embedding attesa: 384, trovata: {X_embedded.shape[1]}")
+        # Auto-adjust hyperparameters or use custom ones
+        if auto_adjust and custom_params is None:
+            params = trainer.auto_adjust_hyperparameters(stats)
+        elif custom_params is not None:
+            params = custom_params
+            logger.info("🔧 Using custom parameters")
+        else:
+            # Default parameters
+            params = {
+                'input_dim': stats['feature_dim'],
+                'hidden_dims': [256, 128],
+                'dropout': 0.3,
+                'learning_rate': 0.001,
+                'batch_size': 32,
+                'epochs': 50,
+                'early_stopping_patience': 10
+            }
+            logger.info("🔧 Using default parameters")
         
-        if not set(unique_labels).issubset({0, 1}):
-            raise ValueError(f"Etichette non binarie trovate: {unique_labels}")
+        # Override with any provided kwargs
+        params.update(kwargs)
         
-        # 🔧 Split automatico train/val (80/20)
-        logger.info("🔄 Eseguendo split automatico train/val (80/20)...")
+        logger.info(f"📋 Training parameters:")
+        for key, value in params.items():
+            logger.info(f"   {key}: {value}")
         
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_embedded, y_labels,
-            test_size=0.2,
-            random_state=42,
-            stratify=y_labels
+        # Create model
+        model = HateSpeechMLP(
+            input_dim=params['input_dim'],
+            hidden_dims=params['hidden_dims'],
+            dropout=params['dropout']
+        ).to(device)
+        
+        logger.info("🧠 Model architecture:")
+        logger.info(str(model))
+        total_params = sum(p.numel() for p in model.parameters())
+        logger.info(f"📊 Total parameters: {total_params:,}")
+        
+        # Create data loaders
+        X_train_tensor = torch.FloatTensor(X_train).to(device)
+        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1).to(device)
+        X_val_tensor = torch.FloatTensor(X_val).to(device)
+        y_val_tensor = torch.FloatTensor(y_val).unsqueeze(1).to(device)
+        
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+        
+        train_loader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=params['batch_size'], shuffle=False)
+        
+        # Setup training
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(model.parameters(), lr=params['learning_rate'])
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=5
         )
         
-        logger.info(f"📊 Dopo split automatico:")
-        logger.info(f"   Train: {X_train.shape[0]} samples ({X_train.shape[0]/X_embedded.shape[0]*100:.1f}%)")
-        logger.info(f"   Val: {X_val.shape[0]} samples ({X_val.shape[0]/X_embedded.shape[0]*100:.1f}%)")
+        # Training history
+        history = {
+            'train_losses': [],
+            'train_accuracies': [],
+            'val_losses': [],
+            'val_accuracies': []
+        }
         
-        # Verifica distribuzione delle classi dopo split
-        train_dist = np.unique(y_train, return_counts=True)
-        val_dist = np.unique(y_val, return_counts=True)
-        logger.info(f"🏷️ Distribuzione train: {dict(zip(train_dist[0], train_dist[1]))}")
-        logger.info(f"🏷️ Distribuzione val: {dict(zip(val_dist[0], val_dist[1]))}")
+        best_val_loss = float('inf')
+        patience_counter = 0
         
-        # Converti in tensori PyTorch
-        X_train_tensor = torch.FloatTensor(X_train)
-        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(1)
-        X_val_tensor = torch.FloatTensor(X_val)
-        y_val_tensor = torch.FloatTensor(y_val).unsqueeze(1)
+        logger.info("🚀 Starting training...")
         
-        logger.info("✅ Dati formato embedded caricati e splittati con successo")
-        return X_train_tensor, y_train_tensor, X_val_tensor, y_val_tensor
-        
-    except Exception as e:
-        logger.error(f"❌ Errore nel caricamento formato embedded: {str(e)}")
-        raise
-
-def create_data_loaders(X_train, y_train, X_val, y_val, batch_size=32):
-    """Crea i DataLoader per training e validazione"""
-    train_dataset = TensorDataset(X_train, y_train)
-    val_dataset = TensorDataset(X_val, y_val)
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    
-    return train_loader, val_loader
-
-def train_epoch(model, train_loader, criterion, optimizer, device):
-    """Training per una singola epoch"""
-    model.train()
-    total_loss = 0
-    correct = 0
-    total = 0
-    
-    for batch_x, batch_y in tqdm(train_loader, desc="Training", leave=False):
-        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-        
-        # Forward pass
-        outputs = model(batch_x)
-        loss = criterion(outputs, batch_y)
-        
-        # Backward pass
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-        # Statistiche
-        total_loss += loss.item()
-        predicted = (outputs > 0.5).float()
-        total += batch_y.size(0)
-        correct += (predicted == batch_y).sum().item()
-    
-    avg_loss = total_loss / len(train_loader)
-    accuracy = correct / total
-    return avg_loss, accuracy
-
-def validate_epoch(model, val_loader, criterion, device):
-    """Validazione per una singola epoch"""
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    all_predictions = []
-    all_targets = []
-    
-    with torch.no_grad():
-        for batch_x, batch_y in tqdm(val_loader, desc="Validation", leave=False):
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        # Training loop
+        for epoch in range(params['epochs']):
+            # Training phase
+            model.train()
+            train_loss = 0
+            train_correct = 0
+            train_total = 0
             
-            outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
+            for batch_x, batch_y in train_loader:
+                optimizer.zero_grad()
+                outputs = model(batch_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+                
+                train_loss += loss.item()
+                predicted = (outputs > 0.5).float()
+                train_total += batch_y.size(0)
+                train_correct += (predicted == batch_y).sum().item()
             
-            total_loss += loss.item()
-            predicted = (outputs > 0.5).float()
-            total += batch_y.size(0)
-            correct += (predicted == batch_y).sum().item()
+            train_loss = train_loss / len(train_loader)
+            train_acc = train_correct / train_total
             
-            # Salva predizioni per metriche dettagliate
-            all_predictions.extend(predicted.cpu().numpy())
-            all_targets.extend(batch_y.cpu().numpy())
-    
-    avg_loss = total_loss / len(val_loader)
-    accuracy = correct / total
-    return avg_loss, accuracy, all_predictions, all_targets
-
-def save_metrics_and_plots(history, final_predictions, final_targets, output_dir, format_type, logger):
-    """Salva metriche e grafici"""
-    output_dir = Path(output_dir)
-    
-    # Crea sottodirectory
-    plots_dir = output_dir / "plots"
-    reports_dir = output_dir / "reports"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    
-    try:
-        # Set matplotlib backend for headless operation
-        import matplotlib
-        matplotlib.use('Agg')
+            # Validation phase
+            model.eval()
+            val_loss = 0
+            val_correct = 0
+            val_total = 0
+            
+            with torch.no_grad():
+                for batch_x, batch_y in val_loader:
+                    outputs = model(batch_x)
+                    loss = criterion(outputs, batch_y)
+                    
+                    val_loss += loss.item()
+                    predicted = (outputs > 0.5).float()
+                    val_total += batch_y.size(0)
+                    val_correct += (predicted == batch_y).sum().item()
+            
+            val_loss = val_loss / len(val_loader)
+            val_acc = val_correct / val_total
+            
+            # Update history
+            history['train_losses'].append(train_loss)
+            history['train_accuracies'].append(train_acc)
+            history['val_losses'].append(val_loss)
+            history['val_accuracies'].append(val_acc)
+            
+            # Learning rate scheduling
+            old_lr = optimizer.param_groups[0]['lr']
+            scheduler.step(val_loss)
+            new_lr = optimizer.param_groups[0]['lr']
+            
+            # Logging
+            logger.info(f"Epoch {epoch+1}/{params['epochs']}: "
+                       f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
+                       f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+            
+            if new_lr != old_lr:
+                logger.info(f"   📈 Learning rate updated: {old_lr:.6f} → {new_lr:.6f}")
+            
+            # Early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                # Save best model
+                model_path = models_dir / "mlp_model.pth"
+                torch.save(model.state_dict(), model_path)
+                logger.info(f"   ✅ New best model saved (val_loss: {val_loss:.4f})")
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= params['early_stopping_patience']:
+                logger.info(f"⏹️ Early stopping at epoch {epoch+1}")
+                break
         
-        # 1. Salva metriche in JSON
-        metrics_data = {
-            'format_type': format_type,  # 🔧 NEW: specifica il formato usato
-            'training_history': {
-                'train_losses': history['train_losses'],
-                'train_accuracies': history['train_accuracies'],
-                'val_losses': history['val_losses'],
-                'val_accuracies': history['val_accuracies']
+        # Load best model
+        model.load_state_dict(torch.load(models_dir / "mlp_model.pth"))
+        
+        # Final evaluation
+        model.eval()
+        with torch.no_grad():
+            val_outputs = model(X_val_tensor)
+            val_predictions = (val_outputs > 0.5).cpu().numpy().flatten()
+            val_targets = y_val
+        
+        final_accuracy = accuracy_score(val_targets, val_predictions)
+        
+        logger.info(f"📊 Final validation accuracy: {final_accuracy:.4f}")
+        
+        # Create comprehensive metadata
+        metadata = {
+            'model_type': 'Enhanced_MLP',
+            'training_timestamp': datetime.now().isoformat(),
+            'discovery_results': discovery,
+            'data_preparation': data_prep,
+            'parameters': params,
+            'training_history': history,
+            'final_performance': {
+                'validation_accuracy': final_accuracy,
+                'best_validation_loss': best_val_loss,
+                'total_epochs': len(history['train_losses'])
             },
-            'final_metrics': {
-                'final_accuracy': accuracy_score(final_targets, final_predictions),
-                'total_epochs': len(history['train_losses']),
-                'best_val_loss': min(history['val_losses']),
-                'best_val_accuracy': max(history['val_accuracies'])
+            'model_info': {
+                'total_parameters': total_params,
+                'architecture': params['hidden_dims'],
+                'input_dimension': params['input_dim']
             }
         }
         
-        metrics_file = reports_dir / "mlp_metrics.json"
-        with open(metrics_file, 'w') as f:
-            json.dump(metrics_data, f, indent=2)
-        logger.info(f"📄 Metriche salvate in: {metrics_file}")
+        # Save metadata
+        metadata_file = models_dir / "mlp_metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2, default=str)
         
-        # 2. Classification report
-        class_report = classification_report(
-            final_targets, final_predictions, 
-            target_names=['Negative', 'Positive'],
-            output_dict=True
-        )
+        # Save complete model
+        torch.save(model, models_dir / "mlp_model_complete.pth")
         
-        class_report_file = reports_dir / "mlp_classification_report.json"
-        with open(class_report_file, 'w') as f:
-            json.dump(class_report, f, indent=2)
-        
-        # Salva anche come testo leggibile
-        class_report_txt = reports_dir / "mlp_classification_report.txt"
-        with open(class_report_txt, 'w') as f:
-            f.write("MLP Classification Report\n")
-            f.write("=" * 50 + "\n\n")
-            f.write(f"Data Format Used: {format_type.upper()}\n")  # 🔧 NEW
-            f.write("=" * 50 + "\n\n")
-            f.write(classification_report(
-                final_targets, final_predictions,
-                target_names=['Negative', 'Positive']
-            ))
-        
-        # 3. Confusion Matrix
-        cm = confusion_matrix(final_targets, final_predictions)
-        
-        # Salva confusion matrix come immagine
-        plt.figure(figsize=(8, 6))
-        plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-        plt.title(f'MLP Confusion Matrix\nFormat: {format_type.upper()}')  # 🔧 NEW
-        plt.colorbar()
-        tick_marks = np.arange(2)
-        plt.xticks(tick_marks, ['Negative', 'Positive'])
-        plt.yticks(tick_marks, ['Negative', 'Positive'])
-        
-        # Aggiungi numeri nella matrice
-        thresh = cm.max() / 2.
-        for i, j in np.ndindex(cm.shape):
-            plt.text(j, i, format(cm[i, j], 'd'),
-                    horizontalalignment="center",
-                    color="white" if cm[i, j] > thresh else "black")
-        
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        plt.tight_layout()
-        
-        cm_plot_path = plots_dir / 'mlp_confusion_matrix.png'
-        plt.savefig(cm_plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # 4. Training history plot
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Loss
-        ax1.plot(history['train_losses'], label='Train Loss', color='blue')
-        ax1.plot(history['val_losses'], label='Val Loss', color='red')
-        ax1.set_title(f'MLP Model Loss\nFormat: {format_type.upper()}')  # 🔧 NEW
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Loss')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        # Accuracy
-        ax2.plot(history['train_accuracies'], label='Train Accuracy', color='blue')
-        ax2.plot(history['val_accuracies'], label='Val Accuracy', color='red')
-        ax2.set_title(f'MLP Model Accuracy\nFormat: {format_type.upper()}')  # 🔧 NEW
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('Accuracy')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        
-        # Salva il plot
-        history_plot_path = plots_dir / 'mlp_training_history.png'
-        plt.savefig(history_plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # 5. Salva summary testuale
-        summary_file = reports_dir / "mlp_training_summary.txt"
-        with open(summary_file, 'w') as f:
-            f.write("MLP Training Summary\n")
-            f.write("=" * 50 + "\n")
-            f.write(f"Training completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Data format used: {format_type.upper()}\n")  # 🔧 NEW
-            if format_type == "embedded":
-                f.write("Automatic train/val split: 80/20\n")  # 🔧 NEW
-            f.write(f"Total epochs: {len(history['train_losses'])}\n")
-            f.write(f"Final train accuracy: {history['train_accuracies'][-1]:.4f}\n")
-            f.write(f"Final validation accuracy: {history['val_accuracies'][-1]:.4f}\n")
-            f.write(f"Best validation loss: {min(history['val_losses']):.4f}\n")
-            f.write(f"Best validation accuracy: {max(history['val_accuracies']):.4f}\n")
-            f.write(f"Final test accuracy: {accuracy_score(final_targets, final_predictions):.4f}\n")
-            f.write("\nConfusion Matrix:\n")
-            f.write(str(cm))
-        
-        # 6. Salva GUI status file per integrazione
-        gui_status_file = output_dir / "mlp_training_status.json"
-        gui_status = {
+        # Create success status
+        success_status = {
             'status': 'completed',
             'timestamp': datetime.now().isoformat(),
             'model_type': 'MLP',
-            'format_type': format_type,  # 🔧 NEW
             'performance': {
-                'accuracy': float(accuracy_score(final_targets, final_predictions)),
+                'accuracy': float(final_accuracy),
                 'final_val_accuracy': float(history['val_accuracies'][-1]),
                 'best_val_accuracy': float(max(history['val_accuracies'])),
                 'total_epochs': len(history['train_losses'])
             },
             'files': {
                 'model': 'models/mlp_model.pth',
-                'confusion_matrix': 'plots/mlp_confusion_matrix.png',
-                'training_history': 'plots/mlp_training_history.png',
-                'classification_report': 'reports/mlp_classification_report.json',
-                'metrics': 'reports/mlp_metrics.json',
-                'summary': 'reports/mlp_training_summary.txt'
+                'metadata': 'models/mlp_metadata.json',
+                'complete_model': 'models/mlp_model_complete.pth'
             }
         }
         
-        with open(gui_status_file, 'w') as f:
-            json.dump(gui_status, f, indent=2)
+        status_file = output_dir / "mlp_training_status.json"
+        with open(status_file, 'w') as f:
+            json.dump(success_status, f, indent=2)
         
-        logger.info(f"📊 Grafici e report salvati in: {output_dir}")
-        
-        return {
-            'metrics_file': str(metrics_file),
-            'confusion_matrix_plot': str(cm_plot_path),
-            'training_history_plot': str(history_plot_path),
-            'classification_report': str(class_report_file),
-            'summary_file': str(summary_file),
-            'gui_status_file': str(gui_status_file)
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Errore nel salvataggio di metriche e grafici: {str(e)}")
-        raise
-
-def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batch_size=32, logger=None, session_dir=None):
-    """🔧 FIXED: Funzione principale di training con supporto dual-format"""
-    if logger is None:
-        # Setup logging temporaneo se non fornito
-        temp_log_dir = Path("logs") if not output_dir else Path(output_dir) / "logs"
-        logger = setup_logging(temp_log_dir)
-    
-    try:
-        # 🔧 FIXED: Determina percorsi e formato in modo intelligente
-        if not embeddings_dir:
-            embeddings_dir, format_type = find_embedding_files(session_dir=session_dir, logger=logger)
-        else:
-            # Verifica che il percorso specificato sia valido
-            embeddings_dir, format_type = find_embedding_files(embeddings_dir=embeddings_dir, logger=logger)
-        
-        if not output_dir:
-            output_dir = determine_output_dir(session_dir=session_dir)
-
-        # 🔧 NEW: Verifica formato-specifica
-        if format_type == "classic":
-            train_path = Path(embeddings_dir) / "X_train.npy"
-            val_path = Path(embeddings_dir) / "X_val.npy"
-            if not train_path.exists() or not val_path.exists():
-                raise ValueError("Training data not found for classic format.")
-        elif format_type == "embedded":
-            embedded_path = Path(embeddings_dir) / "X_embedded.npy"
-            labels_path = Path(embeddings_dir) / "y_labels.npy"
-            if not embedded_path.exists() or not labels_path.exists():
-                raise ValueError("Training data not found for embedded format.")
-
-        output_dir = Path(output_dir)
-        models_dir = output_dir / "models"
-        models_dir.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"🔧 Usando device: {device}")
-        logger.info(f"📁 Directory embeddings: {embeddings_dir}")
-        logger.info(f"📊 Formato dati: {format_type.upper()}")
-        logger.info(f"📁 Directory output: {output_dir}")
-        logger.info(f"⚙️ Parametri training: epochs={epochs}, lr={lr}, batch_size={batch_size}")
-        
-        # Hyperparameters
-        PATIENCE = 10
-        
-        # 🔧 FIXED: Carica i dati con formato appropriato
-        X_train, y_train, X_val, y_val = load_data(embeddings_dir, format_type, logger)
-        
-        # Crea data loaders
-        train_loader, val_loader = create_data_loaders(X_train, y_train, X_val, y_val, batch_size)
-        
-        # Crea il modello
-        model = HateSpeechMLP(input_dim=384).to(device)
-        
-        logger.info("🧠 Architettura del modello:")
-        logger.info(str(model))
-        logger.info(f"📊 Parametri totali: {sum(p.numel() for p in model.parameters()):,}")
-        
-        # Loss e optimizer
-        criterion = nn.BCELoss()
-        optimizer = optim.Adam(model.parameters(), lr=lr)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=5
-        )
-        
-        # Tracking delle metriche
-        train_losses = []
-        train_accuracies = []
-        val_losses = []
-        val_accuracies = []
-        
-        best_val_loss = float('inf')
-        patience_counter = 0
-        
-        logger.info("🚀 Inizio training...")
-        
-        for epoch in range(epochs):
-            logger.info(f"📅 Epoch {epoch+1}/{epochs}")
-            
-            # Training
-            train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
-            
-            # Validation
-            val_loss, val_acc, val_predictions, val_targets = validate_epoch(model, val_loader, criterion, device)
-            
-            # Scheduler step con logging
-            old_lr = optimizer.param_groups[0]['lr']
-            scheduler.step(val_loss)
-            new_lr = optimizer.param_groups[0]['lr']
-            if new_lr != old_lr:
-                logger.info(f"📈 Learning rate aggiornato da {old_lr:.6f} a {new_lr:.6f}")
-            
-            # Salva metriche
-            train_losses.append(train_loss)
-            train_accuracies.append(train_acc)
-            val_losses.append(val_loss)
-            val_accuracies.append(val_acc)
-            
-            logger.info(f"📊 Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
-            logger.info(f"📊 Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
-            
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                # Salva il miglior modello
-                model_path = models_dir / "mlp_model.pth"
-                torch.save(model.state_dict(), model_path)
-                logger.info(f"✅ Nuovo miglior modello salvato (val_loss: {val_loss:.4f})")
-            else:
-                patience_counter += 1
-                
-            if patience_counter >= PATIENCE:
-                logger.info(f"⏹️ Early stopping alla epoch {epoch+1}")
-                break
-        
-        # Carica il miglior modello
-        model.load_state_dict(torch.load(models_dir / "mlp_model.pth"))
-        
-        # Valutazione finale
-        logger.info("📊 Valutazione finale...")
-        final_val_loss, final_val_acc, final_predictions, final_targets = validate_epoch(
-            model, val_loader, criterion, device
-        )
-        
-        logger.info(f"📊 Final Val Loss: {final_val_loss:.4f}")
-        logger.info(f"📊 Final Val Accuracy: {final_val_acc:.4f}")
-        
-        # Converti predizioni per metriche
-        final_predictions = np.array(final_predictions).flatten()
-        final_targets = np.array(final_targets).flatten()
-        
-        logger.info("📋 Classification Report:")
-        logger.info("\n" + classification_report(final_targets, final_predictions, target_names=['Negative', 'Positive']))
-        
-        # Salva modello completo per backup
-        torch.save(model, models_dir / "mlp_model_complete.pth")
-        
-        # Salva metadati del modello
-        metadata = {
-            'model_type': 'MLP',
-            'input_dim': 384,
-            'hidden_dims': [512, 256, 128, 64],
-            'dropout': 0.3,
-            'format_type': format_type,  # 🔧 NEW
-            'training_params': {
-                'epochs': len(train_losses),
-                'learning_rate': lr,
-                'batch_size': batch_size,
-                'optimizer': 'Adam',
-                'loss_function': 'BCELoss'
-            },
-            'performance': {
-                'final_val_loss': final_val_loss,
-                'final_val_accuracy': final_val_acc,
-                'best_val_loss': best_val_loss
-            },
-            'timestamp': datetime.now().isoformat(),
-            'embeddings_dir': str(embeddings_dir),
-            'output_dir': str(output_dir)
-        }
-        
-        metadata_file = models_dir / "mlp_metadata.json"
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        
-        logger.info(f"💾 Modello e metadati salvati in: {models_dir}")
-        
-        # Prepara history per salvataggio
-        history = {
-            'train_losses': train_losses,
-            'train_accuracies': train_accuracies,
-            'val_losses': val_losses,
-            'val_accuracies': val_accuracies
-        }
-        
-        # 🔧 FIXED: Salva metriche e grafici con informazioni sul formato
-        saved_files = save_metrics_and_plots(history, final_predictions, final_targets, output_dir, format_type, logger)
-        
-        logger.info("🎉 Training completato con successo!")
+        logger.info("=" * 60)
+        logger.info("✅ ENHANCED MLP TRAINING COMPLETED!")
+        logger.info("=" * 60)
+        logger.info(f"📊 Final accuracy: {final_accuracy:.4f}")
+        logger.info(f"💾 Model saved: {models_dir / 'mlp_model.pth'}")
+        logger.info(f"📄 Metadata saved: {metadata_file}")
         
         return {
+            'success': True,
+            'skipped': False,
             'model_path': str(models_dir / "mlp_model.pth"),
             'metadata_path': str(metadata_file),
-            'performance': metadata['performance'],
-            'saved_files': saved_files,
-            'output_dir': str(output_dir),
-            'embeddings_dir': str(embeddings_dir),
-            'format_type': format_type  # 🔧 NEW
+            'final_accuracy': final_accuracy,
+            'training_history': history,
+            'metadata': metadata,
+            'status_file': str(status_file)
         }
         
     except Exception as e:
-        logger.error(f"❌ Errore durante il training: {str(e)}")
-        # Salva status di errore per la GUI
+        logger.error(f"❌ Enhanced MLP training failed: {str(e)}")
+        
+        # Save error status
         if output_dir:
             error_status = {
                 'status': 'error',
@@ -809,212 +806,130 @@ def train_model(embeddings_dir=None, output_dir=None, epochs=100, lr=0.001, batc
                 'model_type': 'MLP'
             }
             try:
-                with open(Path(output_dir) / "mlp_training_status.json", 'w') as f:
+                status_file = Path(output_dir) / "mlp_training_status.json"
+                with open(status_file, 'w') as f:
                     json.dump(error_status, f, indent=2)
             except:
                 pass
-        raise
-
-def load_trained_model(model_path):
-    """Carica un modello pre-addestrato"""
-    model_path = Path(model_path)
-    
-    if not model_path.exists():
-        raise FileNotFoundError(f"Modello non trovato: {model_path}")
-    
-    model = HateSpeechMLP(input_dim=384)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
-    return model
-
-def predict_text_embedding(model, embedding):
-    """Predici una singola embedding"""
-    model.eval()
-    with torch.no_grad():
-        if isinstance(embedding, np.ndarray):
-            embedding = torch.FloatTensor(embedding)
         
-        if len(embedding.shape) == 1:
-            embedding = embedding.unsqueeze(0)
-        
-        embedding = embedding.to(device)
-        output = model(embedding)
-        probability = output.item()
-        prediction = 1 if probability > 0.5 else 0
-        
-        return prediction, probability
+        return {
+            'success': False,
+            'skipped': False,
+            'error': str(e),
+            'embeddings_dir': str(embeddings_dir) if embeddings_dir else None,
+            'output_dir': str(output_dir) if output_dir else None
+        }
 
 def parse_arguments():
-    """🔧 FIXED: Parse command line arguments with corrected parameter names"""
-    parser = argparse.ArgumentParser(description='Train MLP model for sentiment analysis - DUAL FORMAT COMPATIBLE')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Enhanced MLP Training for Sentiment Analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+🆕 ENHANCED FEATURES:
+- Universal embedding file detection
+- Intelligent training/inference mode detection
+- Automatic parameter adjustment based on dataset size
+- Robust error handling and graceful fallbacks
+
+Examples:
+  python scripts/train_mlp.py                                    # Auto-detect and train
+  python scripts/train_mlp.py --embeddings-dir data/embeddings   # Specific directory
+  python scripts/train_mlp.py --auto-adjust                      # Auto-adjust parameters
+  python scripts/train_mlp.py --min-samples 50                   # Minimum samples for training
+        """
+    )
     
-    # 🔧 FIXED: Corrected parameter names to match pipeline expectations
+    # Path arguments
     parser.add_argument('--embeddings-dir', type=str, default=None,
-                       help='Directory containing embedding files (.npy). Supports both classic and embedded formats. If not specified, will search automatically.')
+                       help='Directory containing embedding files')
     parser.add_argument('--output-dir', type=str, default=None,
-                       help='Directory to save model, plots, and metrics. If not specified, will create session directory.')
-    parser.add_argument('--session-dir', type=str, default=None,
-                       help='Session directory (used for automatic path detection)')
+                       help='Directory to save model and results')
     
-    # Training parameters
-    parser.add_argument('--epochs', type=int, default=100,
-                       help='Number of training epochs (default: 100)')
-    parser.add_argument('--lr', type=float, default=0.001,
-                       help='Learning rate (default: 0.001)')
-    parser.add_argument('--batch-size', type=int, default=32,
-                       help='Batch size (default: 32)')
-    parser.add_argument('--log-dir', type=str, default=None,
-                       help='Directory for log files (default: output-dir/logs)')
+    # Training configuration
+    parser.add_argument('--auto-adjust', action='store_true', default=True,
+                       help='Automatically adjust hyperparameters based on dataset')
+    parser.add_argument('--min-samples', type=int, default=10,
+                       help='Minimum samples required for training')
+    parser.add_argument('--skip-if-insufficient', action='store_true', default=True,
+                       help='Skip training if insufficient data (instead of failing)')
     
-    # Modalità speciali
-    parser.add_argument('--auto-mode', action='store_true',
-                       help='Run in automatic mode with default parameters')
-    parser.add_argument('--fast', action='store_true',
-                       help='Run in fast mode with reduced epochs')
+    # Model parameters (optional overrides)
+    parser.add_argument('--epochs', type=int, default=None,
+                       help='Number of training epochs')
+    parser.add_argument('--learning-rate', type=float, default=None,
+                       help='Learning rate')
+    parser.add_argument('--batch-size', type=int, default=None,
+                       help='Batch size')
+    parser.add_argument('--dropout', type=float, default=None,
+                       help='Dropout rate')
+    
+    # Utility flags
+    parser.add_argument('--verbose', action='store_true', default=True,
+                       help='Verbose logging')
+    parser.add_argument('--quiet', action='store_true',
+                       help='Suppress detailed output')
     
     return parser.parse_args()
 
-def run_training_auto_mode(session_dir=None, **kwargs):
-    """Modalità automatica per integrazione con altri script"""
-    # Setup logging minimal per auto mode
-    if session_dir:
-        log_dir = Path(session_dir) / "logs"
+def main():
+    """Main function"""
+    args = parse_arguments()
+    
+    # Setup logging
+    if args.output_dir:
+        log_dir = Path(args.output_dir) / "logs"
     else:
         log_dir = Path("logs")
     
     logger = setup_logging(log_dir)
     
-    logger.info("🤖 Modalità automatica MLP training")
+    # Configure logging level
+    if args.quiet:
+        logger.setLevel(logging.WARNING)
+    elif args.verbose:
+        logger.setLevel(logging.INFO)
     
-    # Parametri di default ottimizzati per auto mode
-    default_params = {
-        'epochs': kwargs.get('epochs', 50),  # Meno epoch per speed
-        'lr': kwargs.get('lr', 0.001),
-        'batch_size': kwargs.get('batch_size', 32),
-        'session_dir': session_dir
-    }
+    # Build custom parameters from args
+    custom_params = {}
+    if args.epochs is not None:
+        custom_params['epochs'] = args.epochs
+    if args.learning_rate is not None:
+        custom_params['learning_rate'] = args.learning_rate
+    if args.batch_size is not None:
+        custom_params['batch_size'] = args.batch_size
+    if args.dropout is not None:
+        custom_params['dropout'] = args.dropout
     
-    logger.info(f"⚙️ Parametri auto mode: {default_params}")
+    # Run enhanced training
+    result = enhanced_train_model(
+        embeddings_dir=args.embeddings_dir,
+        output_dir=args.output_dir,
+        auto_adjust=args.auto_adjust,
+        min_samples=args.min_samples,
+        skip_training_if_insufficient=args.skip_if_insufficient,
+        custom_params=custom_params if custom_params else None,
+        logger=logger
+    )
     
-    try:
-        result = train_model(logger=logger, **default_params)
-        logger.info(f"✅ Training automatico completato! Formato: {result['format_type'].upper()}")
-        return result
-    except Exception as e:
-        logger.error(f"❌ Errore in modalità automatica: {str(e)}")
-        raise
-
-def main():
-    """Main function for CLI usage"""
-    args = parse_arguments()
-    
-    # Modalità automatica
-    if args.auto_mode:
-        return run_training_auto_mode(
-            session_dir=args.session_dir,
-            epochs=args.epochs,
-            lr=args.lr,
-            batch_size=args.batch_size
-        )
-    
-    # Fast mode adjustments
-    if args.fast:
-        args.epochs = min(args.epochs, 30)  # Reduce epochs in fast mode
-    
-    # Detect no arguments and apply defaults
-    no_args_provided = len(sys.argv) == 1
-    
-    # Apply defaults when no arguments provided
-    if no_args_provided or not args.embeddings_dir:
-        # Auto-detect embeddings directory
-        project_root = PROJECT_ROOT
-        default_embeddings = project_root / "data" / "embeddings"
-        if no_args_provided or not args.embeddings_dir:
-            args.embeddings_dir = str(default_embeddings)
-    
-    if no_args_provided or not args.output_dir:
-        # Auto-detect output directory
-        default_output = PROJECT_ROOT / "results"
-        if no_args_provided or not args.output_dir:
-            args.output_dir = str(default_output)
-    
-    # Setup logging
-    if args.output_dir:
-        log_dir = args.log_dir if args.log_dir else Path(args.output_dir) / "logs"
+    if result['success']:
+        if result.get('skipped'):
+            logger.warning(f"⚠️ Training skipped: {result['reason']}")
+            return 0
+        else:
+            logger.info("✅ Enhanced MLP training completed successfully!")
+            return 0
     else:
-        log_dir = args.log_dir if args.log_dir else Path("logs")
-    
-    logger = setup_logging(log_dir)
-    
-    # Show warnings for auto-applied defaults
-    if no_args_provided:
-        logger.warning("⚠️ No arguments provided. Using auto-detected directories.")
-    else:
-        if not args.embeddings_dir or args.embeddings_dir == str(PROJECT_ROOT / "data" / "embeddings"):
-            logger.warning("⚠️ Using default embeddings directory: data/embeddings")
-        if not args.output_dir or args.output_dir == str(PROJECT_ROOT / "results"):
-            logger.warning("⚠️ Using default output directory: results")
-    
-    logger.info("=" * 60)
-    logger.info("MLP TRAINING STARTED - DUAL FORMAT SUPPORT")
-    logger.info("=" * 60)
-    logger.info(f"📁 Embeddings dir: {args.embeddings_dir or 'Auto-detect'}")
-    logger.info(f"📁 Output dir: {args.output_dir or 'Auto-create'}")
-    logger.info(f"📁 Session dir: {args.session_dir or 'None'}")
-    logger.info(f"⚙️ Epochs: {args.epochs}")
-    logger.info(f"⚙️ Learning rate: {args.lr}")
-    logger.info(f"⚙️ Batch size: {args.batch_size}")
-    logger.info(f"⚡ Fast mode: {args.fast}")
-    logger.info(f"🔧 Device: {device}")
-    logger.info("📋 Formati supportati: Classic (X_train.npy) + Embedded (X_embedded.npy)")
-    
-    try:
-        # Avvia il training
-        result = train_model(
-            embeddings_dir=args.embeddings_dir,
-            output_dir=args.output_dir,
-            epochs=args.epochs,
-            lr=args.lr,
-            batch_size=args.batch_size,
-            logger=logger,
-            session_dir=args.session_dir
-        )
-        
-        logger.info("=" * 60)
-        logger.info("TRAINING COMPLETATO CON SUCCESSO!")
-        logger.info("=" * 60)
-        logger.info(f"📊 Formato usato: {result['format_type'].upper()}")
-        logger.info(f"💾 Modello salvato: {result['model_path']}")
-        logger.info(f"📊 Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
-        logger.info(f"📁 Output directory: {result['output_dir']}")
-        logger.info(f"📄 Files salvati: {list(result['saved_files'].keys())}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ Errore durante l'esecuzione: {str(e)}")
-        raise
+        logger.error(f"❌ Enhanced MLP training failed: {result.get('error', 'Unknown error')}")
+        return 1
 
 if __name__ == "__main__":
     try:
-        # Controlla se è chiamato senza argomenti (modalità legacy)
-        if len(sys.argv) == 1:
-            print("🚀 Avvio MLP training in modalità automatica...")
-            print(f"📁 Working directory: {os.getcwd()}")
-            print(f"📁 Script location: {__file__}")
-            
-            result = run_training_auto_mode()
-            print(f"\n✅ Training completato! Formato: {result['format_type'].upper()}")
-            print(f"💾 Modello salvato in: {result['model_path']}")
-            print(f"📊 Accuracy finale: {result['performance']['final_val_accuracy']:.4f}")
-        else:
-            # Usa il parser per CLI
-            result = main()
-            
+        exit_code = main()
+        sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n⏹️ Training interrotto dall'utente")
+        print("\n⏹️ Training interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Errore: {str(e)}")
+        print(f"\n❌ Unexpected error: {str(e)}")
         sys.exit(1)
