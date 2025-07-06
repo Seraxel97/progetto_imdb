@@ -160,19 +160,41 @@ class EnhancedPipelineRunner:
             health_status['warnings'].append("Python version < 3.7 - some features may not work properly")
         
         # Check required dependencies
+        logger.debug(f"Python executable: {sys.executable}")
+        logger.debug(f"sys.path: {sys.path}")
+
         required_deps = [
             'pandas', 'numpy', 'scikit-learn', 'torch', 'transformers',
             'sentence_transformers', 'matplotlib', 'seaborn', 'joblib'
         ]
-        
+
         missing_deps = []
-        for dep in required_deps:
+
+        def _check_dependency(dep: str) -> bool:
+            """Attempt to import a dependency and record the result."""
             try:
-                __import__(dep)
-                health_status['checks'][f'dependency_{dep}'] = {'status': 'ok', 'available': True}
-            except ImportError:
+                if dep == 'scikit-learn':
+                    import sklearn as module
+                else:
+                    module = __import__(dep)
+                version = getattr(module, '__version__', 'unknown')
+                health_status['checks'][f'dependency_{dep}'] = {
+                    'status': 'ok',
+                    'available': True,
+                    'version': version
+                }
+                return True
+            except Exception as e:
+                health_status['checks'][f'dependency_{dep}'] = {
+                    'status': 'missing',
+                    'available': False,
+                    'error': str(e)
+                }
+                return False
+
+        for dep in required_deps:
+            if not _check_dependency(dep):
                 missing_deps.append(dep)
-                health_status['checks'][f'dependency_{dep}'] = {'status': 'missing', 'available': False}
         
         if missing_deps:
             health_status['critical_issues'].append(f"Missing dependencies: {', '.join(missing_deps)}")
