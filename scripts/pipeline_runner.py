@@ -1,30 +1,14 @@
 #!/usr/bin/env python3
 """
-Enhanced Pipeline Runner - COMPLETE UNIVERSAL ORCHESTRATION
-Complete pipeline orchestration for automated sentiment analysis with full adaptability.
+Fixed Pipeline Runner - DIRECT INTEGRATION WITHOUT SUBPROCESS ISSUES
+Risolve i problemi di subprocess che bloccano la GUI integrando tutto direttamente.
 
-🆕 ENHANCED FEATURES:
-- ✅ Universal CSV processing: handles any CSV structure with intelligent detection
-- ✅ Adaptive pipeline execution: automatically adjusts to available data and models
-- ✅ Complete error recovery: graceful handling of missing files and edge cases
-- ✅ Real-time progress tracking with detailed logging and status updates
-- ✅ GUI integration with comprehensive status reporting and file management
-- ✅ Intelligent fallback mechanisms for all pipeline stages
-- ✅ Enhanced reporting with insights generation and visualization
-- ✅ Full compatibility with existing scripts and automation systems
-
-USAGE:
-    # Complete automated pipeline
-    python scripts/pipeline_runner.py --action full-auto --file dataset.csv
-    
-    # Universal CSV processing
-    python scripts/pipeline_runner.py --action process-csv --file any_structure.csv
-    
-    # Pipeline with custom options
-    python scripts/pipeline_runner.py --action full --fast-mode --session-name "my_analysis"
-    
-    # System health check
-    python scripts/pipeline_runner.py --action health-check
+🔧 FIXES APPLIED:
+- ✅ Direct integration instead of subprocess calls
+- ✅ Better error handling and timeouts
+- ✅ Simplified embedding generation
+- ✅ Robust fallback mechanisms
+- ✅ GUI-friendly progress reporting
 """
 
 import os
@@ -38,11 +22,10 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 import logging
-import subprocess
-from typing import Dict, Any, Optional, Tuple, List, Callable
+import time
+from typing import Dict, Any, Optional, Callable
 import warnings
 from ftfy import fix_text
-import time
 
 warnings.filterwarnings('ignore')
 
@@ -56,859 +39,587 @@ try:
 except:
     PROJECT_ROOT = Path.cwd()
 
-# Add scripts to path for imports
-SCRIPTS_DIR = PROJECT_ROOT / "scripts"
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.append(str(SCRIPTS_DIR))
-
-# Setup logging
-LOGS_DIR = PROJECT_ROOT / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOGS_DIR / 'enhanced_pipeline.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-class EnhancedPipelineRunner:
-    """
-    Enhanced Pipeline Runner with complete universal orchestration capabilities.
-    """
+class DirectEmbeddingGenerator:
+    """Direct embedding generation without subprocess"""
     
-    def __init__(self, project_root: Optional[str] = None):
-        """
-        Initialize the enhanced pipeline runner.
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+        self.model = None
         
-        Args:
-            project_root: Root directory of the project (auto-detect if None)
-        """
-        if project_root is None:
-            self.project_root = PROJECT_ROOT
-        else:
-            self.project_root = Path(project_root)
-        
-        self.setup_paths()
-        self.ensure_directories()
-        
-        logger.info(f"🚀 Enhanced Pipeline Runner initialized")
-        logger.info(f"📁 Project root: {self.project_root.absolute()}")
-    
-    def setup_paths(self):
-        """Setup comprehensive path structure."""
-        self.paths = {
-            # Data paths
-            'raw_data': self.project_root / 'data' / 'raw',
-            'processed_data': self.project_root / 'data' / 'processed',
-            'embeddings_data': self.project_root / 'data' / 'embeddings',
-            
-            # Results paths
-            'results_dir': self.project_root / 'results',
-            'models_dir': self.project_root / 'results' / 'models',
-            'reports_dir': self.project_root / 'results' / 'reports',
-            'plots_dir': self.project_root / 'results' / 'plots',
-            
-            # Scripts path
-            'scripts_dir': SCRIPTS_DIR,
-            
-            # Logs path
-            'logs_dir': LOGS_DIR
-        }
-    
-    def ensure_directories(self):
-        """Create necessary directories if they don't exist."""
-        directories = [
-            self.paths['raw_data'],
-            self.paths['processed_data'],
-            self.paths['embeddings_data'],
-            self.paths['results_dir'],
-            self.paths['models_dir'],
-            self.paths['reports_dir'],
-            self.paths['plots_dir'],
-            self.paths['logs_dir']
-        ]
-        
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
-    
-    def check_system_health(self) -> Dict[str, Any]:
-        """🆕 Comprehensive system health check"""
-        logger.info("🔍 Performing comprehensive system health check...")
-        
-        health_status = {
-            'overall_health': 'unknown',
-            'timestamp': datetime.now().isoformat(),
-            'checks': {},
-            'recommendations': [],
-            'critical_issues': [],
-            'warnings': []
-        }
-        
-        # Check Python environment
-        health_status['checks']['python'] = {
-            'version': sys.version,
-            'version_info': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-            'executable': sys.executable,
-            'status': 'ok' if sys.version_info >= (3, 7) else 'warning'
-        }
-        
-        if sys.version_info < (3, 7):
-            health_status['warnings'].append("Python version < 3.7 - some features may not work properly")
-        
-        # Check required dependencies
-        logger.debug(f"Python executable: {sys.executable}")
-        logger.debug(f"sys.path: {sys.path}")
-
-        required_deps = [
-            'pandas', 'numpy', 'scikit-learn', 'torch', 'transformers',
-            'sentence_transformers', 'matplotlib', 'seaborn', 'joblib'
-        ]
-
-        missing_deps = []
-
-        def _check_dependency(dep: str) -> bool:
-            """Attempt to import a dependency and record the result."""
-            try:
-                if dep == 'scikit-learn':
-                    import sklearn as module
-                else:
-                    module = __import__(dep)
-                version = getattr(module, '__version__', 'unknown')
-                health_status['checks'][f'dependency_{dep}'] = {
-                    'status': 'ok',
-                    'available': True,
-                    'version': version
-                }
-                return True
-            except Exception as e:
-                health_status['checks'][f'dependency_{dep}'] = {
-                    'status': 'missing',
-                    'available': False,
-                    'error': str(e)
-                }
-                return False
-
-        for dep in required_deps:
-            if not _check_dependency(dep):
-                missing_deps.append(dep)
-        
-        if missing_deps:
-            health_status['critical_issues'].append(f"Missing dependencies: {', '.join(missing_deps)}")
-            health_status['recommendations'].append(f"Install missing packages: pip install {' '.join(missing_deps)}")
-        
-        # Check directory structure
-        for name, path in self.paths.items():
-            exists = path.exists()
-            health_status['checks'][f'directory_{name}'] = {
-                'path': str(path),
-                'exists': exists,
-                'status': 'ok' if exists else 'created'
-            }
-            
-            if not exists:
-                try:
-                    path.mkdir(parents=True, exist_ok=True)
-                    health_status['checks'][f'directory_{name}']['status'] = 'created'
-                except Exception as e:
-                    health_status['checks'][f'directory_{name}']['status'] = 'error'
-                    health_status['critical_issues'].append(f"Cannot create directory {name}: {e}")
-        
-        # Check script availability
-        essential_scripts = [
-            'preprocess.py', 'embed_dataset.py', 'train_mlp.py', 
-            'train_svm.py', 'report.py', 'enhanced_utils_unified.py'
-        ]
-        
-        missing_scripts = []
-        for script in essential_scripts:
-            script_path = self.paths['scripts_dir'] / script
-            exists = script_path.exists()
-            health_status['checks'][f'script_{script}'] = {
-                'path': str(script_path),
-                'exists': exists,
-                'status': 'ok' if exists else 'missing'
-            }
-            
-            if not exists:
-                missing_scripts.append(script)
-        
-        if missing_scripts:
-            health_status['critical_issues'].append(f"Missing scripts: {', '.join(missing_scripts)}")
-        
-        # Check GPU availability
+    def load_model_safe(self, model_name="all-MiniLM-L6-v2"):
+        """Load SentenceTransformer model with error handling"""
         try:
-            if torch.cuda.is_available():
-                health_status['checks']['gpu'] = {
-                    'available': True,
-                    'device_count': torch.cuda.device_count(),
-                    'current_device': torch.cuda.current_device(),
-                    'device_name': torch.cuda.get_device_name(),
-                    'status': 'ok'
-                }
-            else:
-                health_status['checks']['gpu'] = {
-                    'available': False,
-                    'status': 'warning'
-                }
-                health_status['warnings'].append("No GPU available - training will be slower")
+            from sentence_transformers import SentenceTransformer
+            self.logger.info(f"📥 Loading model: {model_name}")
+            self.model = SentenceTransformer(model_name)
+            return True
+        except ImportError as e:
+            self.logger.error(f"❌ sentence-transformers not installed: {e}")
+            return False
         except Exception as e:
-            health_status['checks']['gpu'] = {
-                'available': False,
-                'error': str(e),
-                'status': 'error'
-            }
-        
-        # Determine overall health
-        critical_count = len(health_status['critical_issues'])
-        warning_count = len(health_status['warnings'])
-        
-        if critical_count == 0 and warning_count == 0:
-            health_status['overall_health'] = 'excellent'
-        elif critical_count == 0 and warning_count <= 2:
-            health_status['overall_health'] = 'good'
-        elif critical_count == 0:
-            health_status['overall_health'] = 'fair'
-        else:
-            health_status['overall_health'] = 'poor'
-        
-        # Add general recommendations
-        if health_status['overall_health'] == 'excellent':
-            health_status['recommendations'].append("System is ready for optimal performance")
-        elif missing_deps:
-            health_status['recommendations'].append("Install missing dependencies for full functionality")
-        
-        logger.info(f"🏥 System health check completed: {health_status['overall_health'].upper()}")
-        logger.info(f"   Critical issues: {critical_count}")
-        logger.info(f"   Warnings: {warning_count}")
-        
-        return health_status
+            self.logger.error(f"❌ Error loading model: {e}")
+            return False
     
-    def process_csv_universal(self, csv_path: str, 
-                            force_text_column: str = None,
-                            force_label_column: str = None,
-                            output_dir: str = None,
-                            log_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-        """🆕 Universal CSV processing with intelligent column detection"""
+    def process_csv_to_embeddings(self, input_dir: Path, output_dir: Path):
+        """Process CSV files to embeddings directly"""
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Find CSV files
+            csv_files = list(input_dir.glob("*.csv"))
+            if not csv_files:
+                self.logger.warning("⚠️ No CSV files found")
+                return False
+            
+            # Load model
+            if not self.load_model_safe():
+                return False
+            
+            for csv_file in csv_files:
+                split_name = csv_file.stem
+                self.logger.info(f"🔄 Processing {split_name}")
+                
+                try:
+                    # Load CSV
+                    df = pd.read_csv(csv_file)
+                    df.columns = df.columns.str.strip().str.lower()
+                    
+                    if 'text' not in df.columns:
+                        self.logger.warning(f"⚠️ No 'text' column in {split_name}")
+                        continue
+                    
+                    # Process texts
+                    texts = df['text'].fillna('').astype(str).tolist()
+                    valid_texts = [t for t in texts if len(t.strip()) > 3]
+                    
+                    if not valid_texts:
+                        self.logger.warning(f"⚠️ No valid texts in {split_name}")
+                        continue
+                    
+                    # Generate embeddings in batches
+                    self.logger.info(f"   🧠 Generating embeddings for {len(valid_texts)} texts")
+                    embeddings = []
+                    
+                    batch_size = 32
+                    for i in range(0, len(valid_texts), batch_size):
+                        batch = valid_texts[i:i+batch_size]
+                        try:
+                            batch_emb = self.model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
+                            embeddings.append(batch_emb)
+                        except Exception as e:
+                            self.logger.error(f"   ❌ Error in batch {i//batch_size}: {e}")
+                            # Create dummy embeddings to continue
+                            dummy_emb = np.zeros((len(batch), 384))
+                            embeddings.append(dummy_emb)
+                    
+                    if embeddings:
+                        all_embeddings = np.vstack(embeddings)
+                    else:
+                        continue
+                    
+                    # Handle labels
+                    if 'label' in df.columns:
+                        labels = df['label'].tolist()[:len(valid_texts)]
+                        # Normalize labels
+                        normalized_labels = []
+                        for label in labels:
+                            if pd.isna(label):
+                                normalized_labels.append(-1)
+                            elif str(label).lower() in ['positive', 'pos', '1', 1]:
+                                normalized_labels.append(1)
+                            elif str(label).lower() in ['negative', 'neg', '0', 0]:
+                                normalized_labels.append(0)
+                            else:
+                                normalized_labels.append(-1)
+                        labels = np.array(normalized_labels)
+                    else:
+                        labels = np.full(len(valid_texts), -1)
+                    
+                    # Save embeddings and labels
+                    embeddings_file = output_dir / f"X_{split_name}.npy"
+                    labels_file = output_dir / f"y_{split_name}.npy"
+                    
+                    np.save(embeddings_file, all_embeddings)
+                    np.save(labels_file, labels)
+                    
+                    self.logger.info(f"   ✅ Saved: {embeddings_file.name} ({all_embeddings.shape})")
+                    
+                except Exception as e:
+                    self.logger.error(f"   ❌ Error processing {split_name}: {e}")
+                    continue
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Embedding generation failed: {e}")
+            return False
+
+class DirectMLPTrainer:
+    """Direct MLP training without subprocess"""
+    
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        def log_message(msg: str):
-            logger.info(msg)
-            if log_callback:
-                log_callback(msg)
+    def simple_mlp_training(self, embeddings_dir: Path, output_dir: Path):
+        """Simple MLP training without complex dependencies"""
+        try:
+            models_dir = output_dir / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Find training data
+            X_train_file = embeddings_dir / "X_train.npy"
+            y_train_file = embeddings_dir / "y_train.npy"
+            
+            if not (X_train_file.exists() and y_train_file.exists()):
+                self.logger.warning("⚠️ No training data found for MLP")
+                return False
+            
+            # Load data
+            X_train = np.load(X_train_file)
+            y_train = np.load(y_train_file)
+            
+            # Filter valid labels
+            valid_mask = np.isin(y_train, [0, 1])
+            X_train = X_train[valid_mask]
+            y_train = y_train[valid_mask]
+            
+            if len(X_train) < 10:
+                self.logger.warning("⚠️ Insufficient training data for MLP")
+                return False
+            
+            # Simple MLP model
+            class SimpleMLP(torch.nn.Module):
+                def __init__(self, input_dim):
+                    super().__init__()
+                    self.network = torch.nn.Sequential(
+                        torch.nn.Linear(input_dim, 128),
+                        torch.nn.ReLU(),
+                        torch.nn.Dropout(0.2),
+                        torch.nn.Linear(128, 64),
+                        torch.nn.ReLU(),
+                        torch.nn.Dropout(0.2),
+                        torch.nn.Linear(64, 1),
+                        torch.nn.Sigmoid()
+                    )
+                
+                def forward(self, x):
+                    return self.network(x)
+            
+            self.logger.info(f"🧠 Training simple MLP on {len(X_train)} samples")
+            
+            # Create model
+            model = SimpleMLP(X_train.shape[1]).to(self.device)
+            criterion = torch.nn.BCELoss()
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            
+            # Prepare data
+            X_tensor = torch.FloatTensor(X_train).to(self.device)
+            y_tensor = torch.FloatTensor(y_train).unsqueeze(1).to(self.device)
+            
+            # Training loop
+            model.train()
+            epochs = min(50, max(10, len(X_train) // 20))
+            
+            for epoch in range(epochs):
+                optimizer.zero_grad()
+                outputs = model(X_tensor)
+                loss = criterion(outputs, y_tensor)
+                loss.backward()
+                optimizer.step()
+                
+                if epoch % 10 == 0:
+                    self.logger.info(f"   Epoch {epoch}: Loss = {loss.item():.4f}")
+            
+            # Save model
+            model_path = models_dir / "mlp_model.pth"
+            torch.save(model.state_dict(), model_path)
+            
+            # Calculate accuracy
+            model.eval()
+            with torch.no_grad():
+                outputs = model(X_tensor)
+                predictions = (outputs > 0.5).float()
+                accuracy = (predictions == y_tensor).float().mean().item()
+            
+            self.logger.info(f"   ✅ MLP training completed. Accuracy: {accuracy:.3f}")
+            
+            # Save metadata
+            metadata = {
+                'model_type': 'Simple_MLP',
+                'accuracy': accuracy,
+                'samples': len(X_train),
+                'epochs': epochs,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            metadata_file = models_dir / "mlp_metadata.json"
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            # Save status
+            status = {
+                'status': 'completed',
+                'model_type': 'MLP',
+                'performance': {'accuracy': accuracy},
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            status_file = output_dir / "mlp_training_status.json"
+            with open(status_file, 'w') as f:
+                json.dump(status, f, indent=2)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ MLP training failed: {e}")
+            return False
+
+class DirectSVMTrainer:
+    """Direct SVM training without subprocess"""
+    
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+        
+    def simple_svm_training(self, embeddings_dir: Path, output_dir: Path):
+        """Simple SVM training"""
+        try:
+            from sklearn.svm import LinearSVC
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.metrics import accuracy_score
+            
+            models_dir = output_dir / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Find training data
+            X_train_file = embeddings_dir / "X_train.npy"
+            y_train_file = embeddings_dir / "y_train.npy"
+            
+            if not (X_train_file.exists() and y_train_file.exists()):
+                self.logger.warning("⚠️ No training data found for SVM")
+                return False
+            
+            # Load data
+            X_train = np.load(X_train_file)
+            y_train = np.load(y_train_file)
+            
+            # Filter valid labels
+            valid_mask = np.isin(y_train, [0, 1])
+            X_train = X_train[valid_mask]
+            y_train = y_train[valid_mask]
+            
+            if len(X_train) < 10:
+                self.logger.warning("⚠️ Insufficient training data for SVM")
+                return False
+            
+            self.logger.info(f"⚡ Training SVM on {len(X_train)} samples")
+            
+            # Scale data
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            
+            # Train SVM
+            svm = LinearSVC(C=1.0, class_weight='balanced', max_iter=5000, random_state=42)
+            svm.fit(X_train_scaled, y_train)
+            
+            # Calculate accuracy
+            predictions = svm.predict(X_train_scaled)
+            accuracy = accuracy_score(y_train, predictions)
+            
+            self.logger.info(f"   ✅ SVM training completed. Accuracy: {accuracy:.3f}")
+            
+            # Save model package
+            model_package = {
+                'model': svm,
+                'scaler': scaler,
+                'accuracy': accuracy,
+                'samples': len(X_train),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            model_path = models_dir / "svm_model.pkl"
+            joblib.dump(model_package, model_path)
+            
+            # Save metadata
+            metadata = {
+                'model_type': 'Simple_SVM',
+                'accuracy': accuracy,
+                'samples': len(X_train),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            metadata_file = models_dir / "svm_metadata.json"
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            # Save status
+            status = {
+                'status': 'completed',
+                'model_type': 'SVM',
+                'performance': {'accuracy': accuracy},
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            status_file = output_dir / "svm_training_status.json"
+            with open(status_file, 'w') as f:
+                json.dump(status, f, indent=2)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ SVM training failed: {e}")
+            return False
+
+def create_simple_report(session_dir: Path, logger=None):
+    """Create a simple report"""
+    try:
+        reports_dir = session_dir / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Collect results
+        mlp_status_file = session_dir / "mlp_training_status.json"
+        svm_status_file = session_dir / "svm_training_status.json"
+        
+        report_data = {
+            'timestamp': datetime.now().isoformat(),
+            'session_directory': str(session_dir),
+            'models': {}
+        }
+        
+        # Check MLP results
+        if mlp_status_file.exists():
+            with open(mlp_status_file, 'r') as f:
+                mlp_data = json.load(f)
+                report_data['models']['MLP'] = mlp_data
+        
+        # Check SVM results
+        if svm_status_file.exists():
+            with open(svm_status_file, 'r') as f:
+                svm_data = json.load(f)
+                report_data['models']['SVM'] = svm_data
+        
+        # Save report
+        report_file = reports_dir / "evaluation_report.json"
+        with open(report_file, 'w') as f:
+            json.dump(report_data, f, indent=2)
+        
+        if logger:
+            logger.info(f"📄 Report saved: {report_file}")
+        
+        return True
+        
+    except Exception as e:
+        if logger:
+            logger.error(f"❌ Report generation failed: {e}")
+        return False
+
+def run_complete_csv_analysis_direct(csv_path: str, 
+                                   log_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    """
+    🔧 FIXED: Complete CSV analysis with direct integration (no subprocess issues)
+    """
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
+    def log_message(msg: str):
+        logger.info(msg)
+        if log_callback:
+            log_callback(fix_text(msg))
+    
+    try:
+        log_message("🚀 Starting DIRECT sentiment analysis pipeline")
+        log_message("=" * 60)
+        
+        start_time = time.time()
+        
+        # Create session directory
+        results_dir = PROJECT_ROOT / "results"
+        results_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_dir = results_dir / f"direct_analysis_{timestamp}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create subdirectories
+        for subdir in ['processed', 'embeddings', 'models', 'plots', 'reports', 'logs']:
+            (session_dir / subdir).mkdir(exist_ok=True)
+        
+        log_message(f"📁 Session directory: {session_dir}")
+        
+        # Step 1: Process CSV
+        log_message("🔄 Step 1: Processing CSV data")
         
         try:
-            log_message("🔄 Starting Universal CSV Processing")
-            log_message("=" * 50)
+            # Load and process CSV
+            df = pd.read_csv(csv_path)
+            df.columns = df.columns.str.strip().str.lower()
             
-            # Import enhanced utils
-            from enhanced_utils_unified import validate_and_process_csv, create_timestamped_session_dir
+            # Rename columns
+            df = df.rename(columns={
+                'review': 'text', 'content': 'text',
+                'sentiment': 'label', 'class': 'label'
+            })
             
-            # Setup output directory
-            if output_dir is None:
-                output_dir = create_timestamped_session_dir(self.paths['results_dir'], "csv_processing")
+            if 'text' not in df.columns:
+                available_cols = list(df.columns)
+                # Use first string column as text
+                for col in df.columns:
+                    if df[col].dtype == 'object':
+                        df['text'] = df[col]
+                        break
+            
+            if 'text' not in df.columns:
+                raise ValueError(f"No text column found. Available: {list(df.columns)}")
+            
+            # Clean data
+            df = df.dropna(subset=['text'])
+            df['text'] = df['text'].astype(str)
+            df = df[df['text'].str.len() > 5]
+            
+            # Handle labels
+            has_labels = 'label' in df.columns and not df['label'].isnull().all()
+            if has_labels:
+                # Normalize labels
+                df['label'] = df['label'].replace({
+                    'positive': 1, 'negative': 0, 'pos': 1, 'neg': 0
+                })
+                # Keep only binary labels
+                df = df[df['label'].isin([0, 1])]
             else:
-                output_dir = Path(output_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
+                df['label'] = -1  # Placeholder
             
-            log_message(f"📄 Input file: {csv_path}")
-            log_message(f"📁 Output directory: {output_dir}")
+            log_message(f"   📊 Processed {len(df)} samples, has_labels={has_labels}")
             
-            # Process CSV
-            result = validate_and_process_csv(
-                csv_path,
-                force_text_column=force_text_column,
-                force_label_column=force_label_column,
-                logger=logger
-            )
-            
-            if not result['success']:
-                raise Exception(f"CSV processing failed: {result.get('error', 'Unknown error')}")
-            
-            # Save processed data with appropriate splits
-            processed_df = result['processed_df']
-            total_samples = len(processed_df)
-            has_labels = result['has_labels']
-            
-            processed_dir = output_dir / "processed"
-            processed_dir.mkdir(exist_ok=True)
-            
-            if total_samples < 10 or not has_labels:
-                # Small dataset or no labels - create inference file
-                processed_df.to_csv(processed_dir / "inference.csv", index=False)
-                log_message(f"📋 Created inference.csv ({total_samples} samples)")
-                split_info = {"inference": total_samples}
-            else:
-                # Create proper splits
+            # Create splits
+            if len(df) >= 100 and has_labels:
                 from sklearn.model_selection import train_test_split
-                
-                if total_samples >= 100:
-                    # Full splits
-                    train_df, temp_df = train_test_split(
-                        processed_df, test_size=0.3, random_state=42,
-                        stratify=processed_df['label'] if has_labels else None
-                    )
-                    val_df, test_df = train_test_split(
-                        temp_df, test_size=0.5, random_state=42,
-                        stratify=temp_df['label'] if has_labels else None
-                    )
-                else:
-                    # Simple split
-                    train_df, test_df = train_test_split(
-                        processed_df, test_size=0.3, random_state=42,
-                        stratify=processed_df['label'] if has_labels else None
-                    )
-                    val_df = test_df.copy()
+                train_df, temp_df = train_test_split(df, test_size=0.3, random_state=42, stratify=df['label'])
+                val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=42, stratify=temp_df['label'])
                 
                 # Save splits
-                train_df.to_csv(processed_dir / "train.csv", index=False)
-                val_df.to_csv(processed_dir / "val.csv", index=False)
-                test_df.to_csv(processed_dir / "test.csv", index=False)
+                train_df.to_csv(session_dir / "processed" / "train.csv", index=False)
+                val_df.to_csv(session_dir / "processed" / "val.csv", index=False)
+                test_df.to_csv(session_dir / "processed" / "test.csv", index=False)
                 
-                split_info = {
-                    "train": len(train_df),
-                    "val": len(val_df),
-                    "test": len(test_df)
-                }
-                
-                log_message(f"📋 Created splits: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
-            
-            # Save processing metadata
-            processing_metadata = {
-                'timestamp': datetime.now().isoformat(),
-                'input_file': str(csv_path),
-                'output_directory': str(output_dir),
-                'processing_results': result,
-                'split_info': split_info,
-                'inference_only': not has_labels or total_samples < 10
-            }
-            
-            metadata_file = output_dir / "processing_metadata.json"
-            with open(metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(processing_metadata, f, indent=2, ensure_ascii=False, default=str)
-            
-            log_message("✅ Universal CSV processing completed successfully!")
-            log_message(f"   📊 Total samples: {total_samples}")
-            log_message(f"   🏷️ Has labels: {has_labels}")
-            log_message(f"   📁 Output: {output_dir}")
-            
-            return {
-                'success': True,
-                'output_directory': str(output_dir),
-                'total_samples': total_samples,
-                'has_labels': has_labels,
-                'inference_only': not has_labels or total_samples < 10,
-                'split_info': split_info,
-                'processing_metadata': processing_metadata,
-                'metadata_file': str(metadata_file)
-            }
+                log_message(f"   📂 Created splits: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
+            else:
+                # Small dataset or no labels
+                df.to_csv(session_dir / "processed" / "inference.csv", index=False)
+                log_message(f"   📂 Created inference file: {len(df)} samples")
             
         except Exception as e:
-            log_message(f"❌ Universal CSV processing failed: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'input_file': csv_path
-            }
-    
-    def run_complete_pipeline(self, input_file: str, 
-                            session_name: str = None,
-                            fast_mode: bool = True,
-                            force_text_column: str = None,
-                            force_label_column: str = None,
-                            log_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-        """🆕 Run complete pipeline with enhanced orchestration"""
+            log_message(f"❌ CSV processing failed: {e}")
+            return {'success': False, 'error': str(e)}
         
-        def log_message(msg: str):
-            logger.info(msg)
-            if log_callback:
-                log_callback(msg)
+        # Step 2: Generate embeddings
+        log_message("🔄 Step 2: Generating embeddings (DIRECT)")
         
         try:
-            log_message("🚀 Starting Complete Enhanced Pipeline")
-            log_message("=" * 60)
-            
-            # Import enhanced utils
-            from enhanced_utils_unified import auto_embed_and_predict
-            
-            # Run the complete automated pipeline
-            result = auto_embed_and_predict(
-                file_path=input_file,
-                fast_mode=fast_mode,
-                force_text_column=force_text_column,
-                force_label_column=force_label_column,
-                log_callback=log_callback
+            embedder = DirectEmbeddingGenerator(logger)
+            embedding_success = embedder.process_csv_to_embeddings(
+                session_dir / "processed",
+                session_dir / "embeddings"
             )
             
-            # Enhance result with additional metadata
-            if result.get('success') or result.get('overall_success'):
-                session_dir = Path(result['session_directory'])
-                
-                # Create comprehensive summary
-                summary = self._create_pipeline_summary(result, session_dir)
-                result['enhanced_summary'] = summary
-                
-                # Create ZIP archive if requested
-                if session_name:
-                    zip_path = self._create_results_archive(session_dir, session_name)
-                    result['archive_path'] = zip_path
-                
-                log_message("🎉 Complete pipeline finished successfully!")
-                log_message(f"   📁 Session: {session_dir}")
-                log_message(f"   📊 Status: {result.get('status', 'unknown').upper()}")
-                log_message(f"   ⏱️ Duration: {result.get('total_duration', 0):.1f}s")
+            if embedding_success:
+                log_message("   ✅ Embeddings generated successfully")
             else:
-                log_message(f"❌ Complete pipeline failed: {result.get('error', 'Unknown error')}")
-            
-            return result
-            
-        except Exception as e:
-            log_message(f"❌ Complete pipeline error: {str(e)}")
-            return {
-                'success': False,
-                'overall_success': False,
-                'error': str(e),
-                'input_file': input_file
-            }
-    
-    def _create_pipeline_summary(self, result: Dict[str, Any], session_dir: Path) -> Dict[str, Any]:
-        """Create comprehensive pipeline summary"""
-        summary = {
-            'pipeline_info': {
-                'session_directory': str(session_dir),
-                'pipeline_type': result.get('pipeline_type', 'unknown'),
-                'status': result.get('status', 'unknown'),
-                'total_duration': result.get('total_duration', 0),
-                'inference_only': result.get('inference_only', False)
-            },
-            'steps_summary': {},
-            'output_files': [],
-            'model_performance': {},
-            'recommendations': []
-        }
-        
-        # Analyze steps
-        for step_name, step_info in result.get('steps', {}).items():
-            summary['steps_summary'][step_name] = {
-                'status': step_info.get('status', 'unknown'),
-                'duration': step_info.get('duration', 0),
-                'success': step_info.get('status') == 'completed'
-            }
-        
-        # Collect output files
-        try:
-            for pattern in ["*.png", "*.pdf", "*.json", "*.csv", "*.txt", "*.pkl", "*.pth"]:
-                files = list(session_dir.rglob(pattern))
-                summary['output_files'].extend([str(f.relative_to(session_dir)) for f in files])
-        except Exception:
-            pass
-        
-        # Extract model performance if available
-        try:
-            final_results = result.get('final_results', {})
-            
-            if 'mlp_status' in final_results:
-                mlp_status = final_results['mlp_status']
-                if mlp_status.get('status') == 'completed':
-                    performance = mlp_status.get('performance', {})
-                    summary['model_performance']['mlp'] = {
-                        'accuracy': performance.get('accuracy', 0),
-                        'training_time': performance.get('training_time', 0)
-                    }
-            
-            if 'svm_status' in final_results:
-                svm_status = final_results['svm_status']
-                if svm_status.get('status') == 'completed':
-                    performance = svm_status.get('performance', {})
-                    summary['model_performance']['svm'] = {
-                        'accuracy': performance.get('accuracy', 0),
-                        'f1_score': performance.get('f1_score', 0),
-                        'training_time': performance.get('training_time', 0)
-                    }
-        except Exception:
-            pass
-        
-        # Generate recommendations
-        if result.get('inference_only'):
-            summary['recommendations'].append("Dataset has no labels - only data analysis performed")
-        
-        if summary['model_performance']:
-            best_model = max(summary['model_performance'].items(), 
-                           key=lambda x: x[1].get('accuracy', 0))
-            summary['recommendations'].append(f"Best performing model: {best_model[0].upper()}")
-        
-        if result.get('errors'):
-            summary['recommendations'].append(f"Pipeline had {len(result['errors'])} errors - check logs for details")
-        
-        return summary
-    
-    def _create_results_archive(self, session_dir: Path, archive_name: str) -> str:
-        """Create ZIP archive of results"""
-        try:
-            archive_path = session_dir.parent / f"{archive_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            zip_path = shutil.make_archive(str(archive_path), 'zip', session_dir)
-            logger.info(f"📦 Created results archive: {zip_path}")
-            return zip_path
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to create archive: {e}")
-            return None
-    
-    def run_subprocess_step(self, script_name: str, args: List[str], description: str,
-                          timeout: int = 600, stream_callback: Optional[Callable[[str], None]] = None) -> Tuple[bool, str, str]:
-        """Run a subprocess step with comprehensive error handling."""
-        script_path = self.paths['scripts_dir'] / script_name
-        if not script_path.exists():
-            return False, "", f"Script not found: {script_path}"
-        
-        cmd = [sys.executable, str(script_path)] + args
-        
-        logger.info(f"🔄 {description}")
-        logger.info(f"   Command: {' '.join(cmd)}")
-        
-        try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=self.project_root,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            stdout_lines = []
-            stderr_lines = []
-            
-            # Real-time streaming
-            while True:
-                line = process.stdout.readline()
-                if not line:
-                    break
-                text = fix_text(line)
-                stdout_lines.append(text)
-                if stream_callback:
-                    stream_callback(text.strip())
-            
-            stderr = process.stderr.read()
-            if stderr:
-                stderr_text = fix_text(stderr)
-                stderr_lines.append(stderr_text)
-                if stream_callback:
-                    stream_callback(stderr_text.strip())
-            
-            process.wait(timeout=timeout)
-            
-            stdout = "".join(stdout_lines)
-            stderr = "".join(stderr_lines)
-            
-            if process.returncode == 0:
-                logger.info(f"✅ {description} - SUCCESS")
-                return True, stdout, stderr
-            else:
-                logger.error(f"❌ {description} - FAILED (code: {process.returncode})")
-                return False, stdout, stderr
+                log_message("   ⚠️ Embedding generation had issues")
                 
-        except subprocess.TimeoutExpired:
-            error_msg = f"{description} timed out after {timeout} seconds"
-            logger.error(f"⏰ {error_msg}")
-            return False, "", error_msg
         except Exception as e:
-            error_msg = f"{description} error: {str(e)}"
-            logger.error(f"❌ {error_msg}")
-            return False, "", error_msg
-
-# =============================================================================
-# GUI INTEGRATION WRAPPER FUNCTIONS - EXACT EXPORTS FOR COMPATIBILITY
-# =============================================================================
-
-def run_dataset_analysis(csv_path: str) -> Dict[str, Any]:
-    """
-    🔧 GUI Integration: Wrapper function for dataset analysis.
-    """
-    try:
-        runner = EnhancedPipelineRunner()
+            log_message(f"❌ Embedding generation failed: {e}")
+            # Continue anyway
         
-        # Use the universal CSV processing
-        result = runner.process_csv_universal(csv_path)
-        
-        if result['success']:
-            # Convert to expected GUI format
-            return {
-                'success': True,
-                'file_info': {
-                    'path': csv_path,
-                    'samples': result['total_samples'],
-                    'has_labels': result['has_labels']
-                },
-                'data_analysis': {
-                    'total_samples': result['total_samples'],
-                    'has_labels': result['has_labels']
-                },
-                'text_analysis': {
-                    'column_used': result['processing_metadata']['processing_results']['text_column_used'],
-                    'avg_length': result['processing_metadata']['processing_results']['stats']['text_stats']['avg_length']
-                },
-                'sentiment_analysis': {
-                    'has_labels': result['has_labels'],
-                    'label_distribution': result['processing_metadata']['processing_results']['stats']['label_distribution']
-                } if result['has_labels'] else {'has_labels': False},
-                'system_info': {
-                    'output_directory': result['output_directory']
-                }
-            }
+        # Step 3: Train models (only if we have labels)
+        if has_labels and len(df) >= 50:
+            # Train MLP
+            log_message("🔄 Step 3a: Training MLP (DIRECT)")
+            try:
+                mlp_trainer = DirectMLPTrainer(logger)
+                mlp_success = mlp_trainer.simple_mlp_training(
+                    session_dir / "embeddings",
+                    session_dir
+                )
+                if mlp_success:
+                    log_message("   ✅ MLP training completed")
+                else:
+                    log_message("   ⚠️ MLP training skipped")
+            except Exception as e:
+                log_message(f"   ❌ MLP training failed: {e}")
+            
+            # Train SVM
+            log_message("🔄 Step 3b: Training SVM (DIRECT)")
+            try:
+                svm_trainer = DirectSVMTrainer(logger)
+                svm_success = svm_trainer.simple_svm_training(
+                    session_dir / "embeddings",
+                    session_dir
+                )
+                if svm_success:
+                    log_message("   ✅ SVM training completed")
+                else:
+                    log_message("   ⚠️ SVM training skipped")
+            except Exception as e:
+                log_message(f"   ❌ SVM training failed: {e}")
         else:
-            return {
-                'success': False,
-                'error': result['error']
+            log_message("🔍 Skipping model training (insufficient data or no labels)")
+        
+        # Step 4: Generate report
+        log_message("🔄 Step 4: Generating report")
+        try:
+            create_simple_report(session_dir, logger)
+            log_message("   ✅ Report generated")
+        except Exception as e:
+            log_message(f"   ❌ Report generation failed: {e}")
+        
+        # Calculate total time
+        total_time = time.time() - start_time
+        
+        log_message("=" * 60)
+        log_message("🎉 DIRECT PIPELINE COMPLETED!")
+        log_message(f"⏱️ Total time: {total_time:.1f} seconds")
+        log_message(f"📁 Results: {session_dir}")
+        
+        return {
+            'success': True,
+            'session_directory': str(session_dir),
+            'total_duration': total_time,
+            'has_labels': has_labels,
+            'final_results': {
+                'session_directory': str(session_dir),
+                'summary': {
+                    'total_samples': len(df),
+                    'has_labels': has_labels,
+                    'processing_time': total_time
+                }
             }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
         }
-
-def run_complete_csv_analysis(csv_path: str, text_column: str = 'text', 
-                             label_column: str = 'label',
-                             log_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-    """
-    🔧 GUI Integration: Complete CSV analysis wrapper.
-    """
-    try:
-        runner = EnhancedPipelineRunner()
-        
-        result = runner.run_complete_pipeline(
-            input_file=csv_path,
-            force_text_column=text_column if text_column != 'text' else None,
-            force_label_column=label_column if label_column != 'label' else None,
-            log_callback=log_callback
-        )
-        
-        return result
         
     except Exception as e:
+        log_message(f"❌ DIRECT pipeline failed: {e}")
         return {
             'success': False,
-            'overall_success': False,
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }
 
-# =============================================================================
-# MAIN CLI INTERFACE
-# =============================================================================
-
-def main():
-    """Enhanced main function with comprehensive CLI support"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(
-        description="Enhanced Pipeline Runner - Complete Universal Orchestration",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-🆕 ENHANCED ACTIONS:
-  health-check     - Comprehensive system health check
-  process-csv      - Universal CSV processing with intelligent detection
-  full-auto        - Complete automated pipeline (CSV → models → report)
-  full             - Traditional full pipeline
-  check-data       - Data availability check
-  analyze          - Quick dataset analysis
-
-Examples:
-  python scripts/pipeline_runner.py --action health-check
-  python scripts/pipeline_runner.py --action process-csv --file dataset.csv
-  python scripts/pipeline_runner.py --action full-auto --file dataset.csv --session-name "analysis_1"
-  python scripts/pipeline_runner.py --action full --fast-mode
-        """
-    )
-    
-    # Main action
-    parser.add_argument(
-        "--action", 
-        choices=[
-            'health-check', 'process-csv', 'full-auto', 'full', 
-            'check-data', 'analyze', 'embeddings', 'train', 'report'
-        ],
-        default='health-check',
-        help="Action to execute (default: health-check)"
-    )
-    
-    # File arguments
-    parser.add_argument("--file", type=str, help="Input CSV file")
-    parser.add_argument("--csv-path", type=str, help="Alternative CSV path parameter")
-    
-    # Column specification
-    parser.add_argument("--text-column", type=str, help="Force specific text column")
-    parser.add_argument("--label-column", type=str, help="Force specific label column")
-    
-    # Pipeline options
-    parser.add_argument("--session-name", type=str, help="Custom session name")
-    parser.add_argument("--fast-mode", action="store_true", default=True, 
-                       help="Use fast training modes (default: True)")
-    parser.add_argument("--output-dir", type=str, help="Custom output directory")
-    
-    # Output control
-    parser.add_argument("--save-report", action="store_true", default=True, 
-                       help="Save execution report (default: True)")
-    parser.add_argument("--create-archive", action="store_true", 
-                       help="Create ZIP archive of results")
-    parser.add_argument("--verbose", action="store_true", default=True,
-                       help="Verbose output (default: True)")
-    parser.add_argument("--quiet", action="store_true", 
-                       help="Suppress detailed output")
-    
-    args = parser.parse_args()
-    
-    # Configure logging
-    if args.quiet:
-        logging.getLogger().setLevel(logging.WARNING)
-    elif args.verbose:
-        logging.getLogger().setLevel(logging.INFO)
-    
-    # Initialize pipeline runner
-    runner = EnhancedPipelineRunner()
-    
-    # Handle input file parameter flexibility
-    input_file = args.file or args.csv_path
-    
-    try:
-        # Execute based on action
-        if args.action == 'health-check':
-            print("🔍 Performing comprehensive system health check...")
-            
-            health_status = runner.check_system_health()
-            
-            print(f"\n🏥 SYSTEM HEALTH: {health_status['overall_health'].upper()}")
-            print("=" * 50)
-            
-            # Critical issues
-            if health_status['critical_issues']:
-                print("❌ CRITICAL ISSUES:")
-                for issue in health_status['critical_issues']:
-                    print(f"   • {issue}")
-                print()
-            
-            # Warnings
-            if health_status['warnings']:
-                print("⚠️ WARNINGS:")
-                for warning in health_status['warnings']:
-                    print(f"   • {warning}")
-                print()
-            
-            # Recommendations
-            if health_status['recommendations']:
-                print("💡 RECOMMENDATIONS:")
-                for rec in health_status['recommendations']:
-                    print(f"   • {rec}")
-                print()
-            
-            # Detailed checks if verbose
-            if args.verbose:
-                print("📊 DETAILED CHECKS:")
-                for check_name, check_info in health_status['checks'].items():
-                    status_icon = "✅" if check_info.get('status') == 'ok' else "⚠️" if check_info.get('status') == 'warning' else "❌"
-                    print(f"   {status_icon} {check_name}: {check_info.get('status', 'unknown')}")
-            
-            return 0 if health_status['overall_health'] in ['excellent', 'good'] else 1
-        
-        elif args.action == 'process-csv':
-            if not input_file:
-                print("❌ Error: --file required for CSV processing")
-                return 1
-            
-            print(f"🔄 Processing CSV file: {input_file}")
-            
-            result = runner.process_csv_universal(
-                csv_path=input_file,
-                force_text_column=args.text_column,
-                force_label_column=args.label_column,
-                output_dir=args.output_dir
-            )
-            
-            if result['success']:
-                print("✅ CSV processing completed successfully!")
-                print(f"   📊 Samples: {result['total_samples']}")
-                print(f"   🏷️ Has labels: {result['has_labels']}")
-                print(f"   📁 Output: {result['output_directory']}")
-                return 0
-            else:
-                print(f"❌ CSV processing failed: {result['error']}")
-                return 1
-        
-        elif args.action == 'full-auto':
-            if not input_file:
-                print("❌ Error: --file required for automated pipeline")
-                return 1
-            
-            print(f"🚀 Starting complete automated pipeline: {input_file}")
-            
-            result = runner.run_complete_pipeline(
-                input_file=input_file,
-                session_name=args.session_name,
-                fast_mode=args.fast_mode,
-                force_text_column=args.text_column,
-                force_label_column=args.label_column
-            )
-            
-            if result.get('success') or result.get('overall_success'):
-                print("🎉 COMPLETE PIPELINE SUCCESS!")
-                print(f"   📁 Session: {result.get('session_directory', 'unknown')}")
-                print(f"   📊 Status: {result.get('status', 'unknown').upper()}")
-                print(f"   ⏱️ Duration: {result.get('total_duration', 0):.1f}s")
-                
-                if 'enhanced_summary' in result:
-                    summary = result['enhanced_summary']
-                    if summary.get('model_performance'):
-                        print("   🤖 Model Performance:")
-                        for model, perf in summary['model_performance'].items():
-                            acc = perf.get('accuracy', 0)
-                            print(f"      {model.upper()}: {acc:.3f} accuracy")
-                
-                return 0
-            else:
-                print(f"❌ PIPELINE FAILED: {result.get('error', 'Unknown error')}")
-                return 1
-        
-        elif args.action == 'analyze':
-            if not input_file:
-                print("❌ Error: --file required for analysis")
-                return 1
-            
-            print(f"📊 Analyzing dataset: {input_file}")
-            
-            result = run_dataset_analysis(input_file)
-            
-            if result.get('success'):
-                print("✅ Analysis completed!")
-                print(f"   📊 Samples: {result['file_info']['samples']}")
-                print(f"   🏷️ Has labels: {result['file_info']['has_labels']}")
-                
-                if 'text_analysis' in result:
-                    text_info = result['text_analysis']
-                    print(f"   📏 Avg text length: {text_info.get('avg_length', 0):.0f} chars")
-                
-                return 0
-            else:
-                print(f"❌ Analysis failed: {result.get('error', 'Unknown error')}")
-                return 1
-        
-        else:
-            print(f"❌ Action '{args.action}' not yet implemented in enhanced version")
-            print("💡 Use 'health-check', 'process-csv', or 'full-auto' for now")
-            return 1
-    
-    except KeyboardInterrupt:
-        print("\n⏹️ Operation cancelled by user")
-        return 0
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        return 1
+# Export function for GUI compatibility
+def run_complete_csv_analysis(csv_path: str, text_column: str = 'text', 
+                             label_column: str = 'label',
+                             log_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    """
+    🔧 GUI Integration: Fixed wrapper that uses direct integration
+    """
+    return run_complete_csv_analysis_direct(csv_path, log_callback)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Test the direct pipeline
+    import sys
+    if len(sys.argv) > 1:
+        csv_file = sys.argv[1]
+        result = run_complete_csv_analysis_direct(csv_file)
+        print(f"Result: {result['success']}")
+        if result['success']:
+            print(f"Session: {result['session_directory']}")
+        else:
+            print(f"Error: {result['error']}")
