@@ -1,31 +1,25 @@
-# =========================================
-# IMDb Sentiment Analysis - requirements.txt
-# Ultimo aggiornamento: luglio 2025
-# =========================================
+# IMDb Sentiment Analysis - requirements.txt (aggiornato)
+torch>=2.1.0
+scikit-learn>=1.3.0
+numpy>=1.25.0
+pandas>=2.1.0
+tqdm>=4.64.0
 
-# 🔧 Core Machine Learning
-torch>=2.1.0                     # Per MLP e operazioni tensoriali
-scikit-learn>=1.3.0              # SVM, metriche, preprocessing
-numpy>=1.25.0                    # Operazioni vettoriali
-pandas>=2.1.0                    # Caricamento e manipolazione CSV
-tqdm>=4.64.0                     # Barre di avanzamento
+transformers==4.40.0
+sentence-transformers>=2.2.2
+nltk>=3.8.1
+pyyaml>=6.0
 
-# 🧠 NLP & Embedding
-transformers==4.40.0             # Modelli HuggingFace (MiniLM, tokenizer, ecc.)
-sentence-transformers>=2.2.2     # Wrapper per modelli embedding
-nltk>=3.8.1                      # Tokenizzazione, stopwords
-pyyaml>=6.0                      # Parsing file config.yaml
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.20.0
+scikit-image>=0.21.0
 
-# 📊 Visualizzazione & Analisi
-matplotlib>=3.7.0                # Grafici statici
-seaborn>=0.12.0                  # Heatmap, grafici comparativi
-plotly>=5.20.0                   # Grafici interattivi per GUI e dashboard
-scikit-image>=0.21.0             # Supporto immagini (wordcloud e preproc)
+streamlit>=1.30.0
+Pillow>=10.0.0
+wordcloud>=1.9.2
+ftfy>=6.1.1
 
-# 📱 GUI & Frontend
-streamlit>=1.30.0                # Interfaccia utente
-Pillow>=10.0.0                   # Immagini in GUI (PNG, JPG, ecc.)
-wordcloud>=1.9.2                 # Generazione word cloud opzionale
-ftfy>=6.1.1                      # Correzione testi unicode
-
-chardet
+chardet>=5.2.0
+memory-profiler>=0.61.0
+joblib>=1.3.2
