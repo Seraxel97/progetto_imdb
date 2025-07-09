@@ -11,6 +11,7 @@ and better error handling for improved user experience.
 - ✅ Comprehensive error handling and recovery
 - ✅ Results summary and file organization
 - ✅ Compatible with existing GUI and automation features
+- ✅ Standard directory copying for compatibility
 
 🔧 ENHANCEMENTS:
 - ✅ Enhanced dependency checking with detailed reporting
@@ -45,6 +46,7 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 import time
 import json
+import shutil
 
 def setup_logging():
     """Setup basic logging for the main entry point"""
@@ -572,7 +574,8 @@ def run_complete_pipeline(input_file: str, project_root: Path, session_name: Opt
         'start_time': datetime.now().isoformat(),
         'steps': {},
         'total_duration': 0.0,
-        'errors': []
+        'errors': [],
+        'final_results': {}
     }
     
     # Setup logging for this session
@@ -675,6 +678,73 @@ def run_complete_pipeline(input_file: str, project_root: Path, session_name: Opt
         else:
             logger.info(f"✅ Step {step_name} completed successfully")
     
+    # 🆕 NUOVO: Copia risultati anche nelle directory standard
+    try:
+        logger.info("📁 Copying results to standard directories...")
+        
+        # Directory standard
+        standard_processed = project_root / "data" / "processed"
+        standard_embeddings = project_root / "data" / "embeddings"
+        standard_models = project_root / "results" / "models"
+        standard_reports = project_root / "results" / "reports"
+        standard_plots = project_root / "results" / "plots"
+        
+        # Crea directory standard
+        for std_dir in [standard_processed, standard_embeddings, standard_models, standard_reports, standard_plots]:
+            std_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copia processed files
+        session_processed = session_dir / "processed"
+        if session_processed.exists():
+            for file in session_processed.glob("*.csv"):
+                shutil.copy2(file, standard_processed / file.name)
+                logger.info(f"   📄 Copied {file.name} to standard processed")
+        
+        # Copia embedding files
+        session_embeddings = session_dir / "embeddings"
+        if session_embeddings.exists():
+            for file in session_embeddings.glob("*.npy"):
+                shutil.copy2(file, standard_embeddings / file.name)
+                logger.info(f"   🧠 Copied {file.name} to standard embeddings")
+        
+        # Copia model files
+        session_models = session_dir / "models"
+        if session_models.exists():
+            for file in session_models.glob("*"):
+                if file.is_file():
+                    shutil.copy2(file, standard_models / file.name)
+                    logger.info(f"   🤖 Copied {file.name} to standard models")
+        
+        # Copia report files
+        session_reports = session_dir / "reports"
+        if session_reports.exists():
+            for file in session_reports.glob("*"):
+                if file.is_file():
+                    shutil.copy2(file, standard_reports / file.name)
+                    logger.info(f"   📊 Copied {file.name} to standard reports")
+        
+        # Copia plot files
+        session_plots = session_dir / "plots"
+        if session_plots.exists():
+            for file in session_plots.glob("*.png"):
+                shutil.copy2(file, standard_plots / file.name)
+                logger.info(f"   📈 Copied {file.name} to standard plots")
+        
+        logger.info("✅ Successfully copied all results to standard directories")
+        
+        # Aggiorna results con le directory standard
+        results["final_results"]["standard_directories"] = {
+            "processed": str(standard_processed),
+            "embeddings": str(standard_embeddings),
+            "models": str(standard_models),
+            "reports": str(standard_reports),
+            "plots": str(standard_plots)
+        }
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Warning: Could not copy to standard directories: {e}")
+        # Non fallire se la copia non funziona
+    
     # Calculate total duration and final status
     results['total_duration'] = time.time() - pipeline_start_time
     results['end_time'] = datetime.now().isoformat()
@@ -697,10 +767,40 @@ def run_complete_pipeline(input_file: str, project_root: Path, session_name: Opt
     summary_file = session_dir / "pipeline_summary.json"
     try:
         with open(summary_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+            json.dump(results, f, indent=2, ensure_ascii=False, default=str)
         results['summary_file'] = str(summary_file)
     except Exception as e:
         logger.warning(f"Failed to save summary file: {e}")
+    
+    # Collect final results
+    try:
+        # Look for evaluation report
+        report_json = session_dir / "reports" / "evaluation_report.json"
+        if report_json.exists():
+            with open(report_json, 'r', encoding='utf-8') as f:
+                report_data = json.load(f)
+            results["final_results"]["evaluation_report"] = report_data
+        
+        # Look for model status files
+        mlp_status = session_dir / "mlp_training_status.json"
+        if mlp_status.exists():
+            with open(mlp_status, 'r', encoding='utf-8') as f:
+                results["final_results"]["mlp_status"] = json.load(f)
+        
+        svm_status = session_dir / "svm_training_status.json"
+        if svm_status.exists():
+            with open(svm_status, 'r', encoding='utf-8') as f:
+                results["final_results"]["svm_status"] = json.load(f)
+        
+        # Collect output files
+        output_files = []
+        for pattern in ["*.png", "*.pdf", "*.json", "*.csv", "*.txt", "*.pkl", "*.pth"]:
+            output_files.extend(session_dir.rglob(pattern))
+        
+        results["final_results"]["output_files"] = [str(f.relative_to(session_dir)) for f in output_files]
+        
+    except Exception as e:
+        logger.warning(f"Error collecting final results: {e}")
     
     # Log final results
     logger.info(f"\n{'='*60}")
@@ -721,25 +821,6 @@ def run_complete_pipeline(input_file: str, project_root: Path, session_name: Opt
     for step_name, step_info in results['steps'].items():
         status = "✅" if step_info['success'] else "❌"
         logger.info(f"  {status} {step_name}: {step_info['duration']:.1f}s")
-    
-    # Collect output files
-    try:
-        output_files = []
-        for root, dirs, files in os.walk(session_dir):
-            for file in files:
-                if file.endswith(('.png', '.pdf', '.json', '.csv', '.txt', '.pkl', '.pth')):
-                    rel_path = Path(root).relative_to(session_dir) / file
-                    output_files.append(str(rel_path))
-        
-        results['output_files'] = sorted(output_files)
-        logger.info(f"\nGenerated {len(output_files)} output files:")
-        for file_path in output_files[:10]:  # Show first 10
-            logger.info(f"  📄 {file_path}")
-        if len(output_files) > 10:
-            logger.info(f"  ... and {len(output_files) - 10} more files")
-            
-    except Exception as e:
-        logger.warning(f"Failed to collect output files: {e}")
     
     # Remove file handler
     logger.removeHandler(file_handler)
@@ -772,6 +853,7 @@ def show_help():
     print("   • Performance evaluation and reporting")
     print("   • Real-time analysis and logging")
     print("   • Enhanced error handling and recovery")
+    print("   • 🆕 Standard directory support")
     print()
     print("📁 PROJECT STRUCTURE:")
     print("   main.py                     # This entry point")
@@ -785,13 +867,18 @@ def show_help():
     print("   ├── train_svm.py            # SVM training")
     print("   └── report.py               # Report generation")
     print("   data/                       # Dataset storage")
+    print("   ├── processed/              # 🆕 Processed CSV files")
+    print("   └── embeddings/             # 🆕 Generated embeddings")
     print("   results/                    # Output and models")
+    print("   ├── models/                 # 🆕 Trained models")
+    print("   ├── reports/                # 🆕 Analysis reports")
+    print("   └── plots/                  # 🆕 Generated plots")
     print()
     print("🚀 QUICK START:")
     print("   1. Install dependencies: pip install -r requirements.txt")
     print("   2. GUI mode: python main.py")
     print("   3. 🆕 Pipeline mode: python main.py --run-pipeline --input your_data.csv")
-    print("   4. View results in results/session_<timestamp>/")
+    print("   4. View results in data/ and results/ directories")
     print()
     print("🛠️ PIPELINE DETAILS:")
     print("   The --run-pipeline option executes these steps in sequence:")
@@ -800,6 +887,7 @@ def show_help():
     print("   3. 🤖 MLP model training (train_mlp.py)")
     print("   4. ⚡ SVM model training (train_svm.py)")
     print("   5. 📋 Report generation (report.py)")
+    print("   6. 🆕 Copy to standard directories")
     print()
     print("📊 PIPELINE OPTIONS:")
     print("   --input FILE              Input CSV file (required)")
@@ -936,12 +1024,22 @@ def main():
             
             if results['success']:
                 print(f"\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
-                print(f"📁 Results saved to: {results['session_directory']}")
+                print(f"📁 Session results: {results['session_directory']}")
                 print(f"⏱️ Total time: {results['total_duration']:.1f} seconds")
                 print(f"📊 Status: {results['status']}")
                 
-                if 'output_files' in results:
-                    print(f"📄 Generated {len(results['output_files'])} files")
+                # Show standard directories
+                if 'standard_directories' in results.get('final_results', {}):
+                    std_dirs = results['final_results']['standard_directories']
+                    print(f"\n📁 Standard directories populated:")
+                    print(f"   📄 Processed: {std_dirs['processed']}")
+                    print(f"   🧠 Embeddings: {std_dirs['embeddings']}")
+                    print(f"   🤖 Models: {std_dirs['models']}")
+                    print(f"   📊 Reports: {std_dirs['reports']}")
+                    print(f"   📈 Plots: {std_dirs['plots']}")
+                
+                if 'output_files' in results.get('final_results', {}):
+                    print(f"📄 Generated {len(results['final_results']['output_files'])} files")
                 
                 if results.get('errors'):
                     print(f"⚠️ Warnings: {len(results['errors'])} issues encountered")
